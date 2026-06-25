@@ -92,10 +92,20 @@ export interface GameOutcome {
 export interface ObservationEntry {
   id: string;
   createdAt: string;
+  committedAt?: string;
+  gameResult?: Winner;
   stateBefore: GameState;
   rollValue: DieValue;
   action: GameAction;
   legalActions: GameAction[];
+}
+
+export interface GameRecord {
+  id: string;
+  createdAt: string;
+  result: Winner;
+  observationCount: number;
+  finalState: GameState;
 }
 
 export interface LogEntry {

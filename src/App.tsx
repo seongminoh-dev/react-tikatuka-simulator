@@ -22,6 +22,7 @@ import {
   formatAction,
   legalActionsForRoll,
   lineIndexes,
+  normalPlacementWouldKnock,
   removeDieAt
 } from "./game/rules";
 import { evaluateBoard, scoreLine } from "./game/scoring";
@@ -30,6 +31,7 @@ import type {
   Die,
   DieKind,
   DieValue,
+  GameRecord,
   GameAction,
   GameState,
   LineIndex,
@@ -38,13 +40,19 @@ import type {
   Owner,
   Recommendation,
   RecommendationInput,
-  RollMode
+  RollMode,
+  Winner
 } from "./game/types";
 
 type PlacementAction = Extract<GameAction, { type: "place-normal" }> | Extract<
   GameAction,
   { type: "place-shield" }
 >;
+
+interface ManualDialogState {
+  owner: Owner;
+  lineIndex: LineIndex;
+}
 
 const DIE_VALUES: DieValue[] = [1, 2, 3, 4, 5, 6];
 const SAMPLE_OPTIONS = [
@@ -61,6 +69,12 @@ const OWNER_LABEL: Record<Owner, string> = {
 const WINNER_LABEL = {
   player: "내 승리",
   opponent: "상대 우세",
+  draw: "무승부"
+};
+
+const RESULT_LABEL: Record<Winner, string> = {
+  player: "승리",
+  opponent: "패배",
   draw: "무승부"
 };
 
@@ -82,10 +96,6 @@ function App() {
   );
   const [alternateRollValue, setAlternateRollValue] =
     useLocalStorage<DieValue | null>("tikatuka.alternateRoll", null);
-  const [rollMode, setRollMode] = useLocalStorage<RollMode>(
-    "tikatuka.rollMode",
-    "normal"
-  );
   const [samplesPerAction, setSamplesPerAction] = useLocalStorage<number>(
     "tikatuka.samples",
     520
@@ -98,19 +108,41 @@ function App() {
     "tikatuka.observations",
     []
   );
-  const [logs, setLogs] = useLocalStorage<LogEntry[]>("tikatuka.logs", []);
+  const [pendingObservations, setPendingObservations] = useLocalStorage<
+    ObservationEntry[]
+  >("tikatuka.pendingObservations", []);
+  const [gameRecords, setGameRecords] = useLocalStorage<GameRecord[]>(
+    "tikatuka.gameRecords",
+    []
+  );
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [history, setHistory] = useState<GameState[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
   const [isCalculating, setIsCalculating] = useState(false);
   const [workerError, setWorkerError] = useState<string | null>(null);
-  const [manualOwner, setManualOwner] = useState<Owner>("player");
-  const [manualLine, setManualLine] = useState<LineIndex>(0);
+  const [manualDialog, setManualDialog] = useState<ManualDialogState | null>(
+    null
+  );
   const [manualValue, setManualValue] = useState<DieValue>(1);
   const [manualKind, setManualKind] = useState<DieKind>("normal");
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const activeActor = state.pendingBonus ?? state.turn;
-  const effectiveRollMode: RollMode = state.pendingBonus ? "shield" : rollMode;
+  const effectiveRollMode: RollMode = state.pendingBonus ? "shield" : "normal";
+  const effectiveAlternateRollValue =
+    activeActor === "player" && !state.pendingBonus ? alternateRollValue : null;
+  const tunedAiProfile = useMemo(
+    () =>
+      aiProfile === "observed"
+        ? inferObservedProfile(observations)
+        : aiProfile,
+    [aiProfile, observations]
+  );
+  const rollStatus = state.pendingBonus
+    ? `${OWNER_LABEL[state.pendingBonus]} 보너스 쉴드`
+    : state.openingShieldOwner === activeActor
+      ? "첫 주사위 자동 쉴드"
+      : "일반 주사위";
   const legalActions = useMemo(
     () =>
       legalActionsForRoll(
@@ -118,22 +150,18 @@ function App() {
         activeActor,
         rollValue,
         effectiveRollMode,
-        alternateRollValue,
+        effectiveAlternateRollValue,
         true
       ),
-    [activeActor, alternateRollValue, effectiveRollMode, rollValue, state]
+    [
+      activeActor,
+      effectiveAlternateRollValue,
+      effectiveRollMode,
+      rollValue,
+      state
+    ]
   );
   const outcome = useMemo(() => evaluateBoard(state.board), [state.board]);
-
-  useEffect(() => {
-    if (!state.pendingBonus && rollMode === "shield") {
-      return;
-    }
-
-    if (state.pendingBonus && rollMode !== "shield") {
-      setRollMode("shield");
-    }
-  }, [rollMode, setRollMode, state.pendingBonus]);
 
   function addLog(message: string) {
     setLogs((current) =>
@@ -173,8 +201,11 @@ function App() {
 
       commitState(result.state, messageParts.join(" · "));
 
-      if (action.actor === "opponent") {
-        setObservations((current) => [
+      if (
+        action.actor === "opponent" &&
+        (action.type === "place-normal" || action.type === "place-shield")
+      ) {
+        setPendingObservations((current) => [
           {
             id: makeId("obs"),
             createdAt: new Date().toISOString(),
@@ -199,10 +230,10 @@ function App() {
       state,
       actor: activeActor,
       rollValue,
-      alternateRollValue,
+      alternateRollValue: effectiveAlternateRollValue,
       rollMode: effectiveRollMode,
       samplesPerAction,
-      aiProfile,
+      aiProfile: tunedAiProfile,
       seed: Date.now()
     };
 
@@ -265,7 +296,7 @@ function App() {
   function resetGame() {
     commitState(createInitialState(), "새 게임");
     setAlternateRollValue(null);
-    setRollMode("normal");
+    setPendingObservations([]);
   }
 
   function removeDie(owner: Owner, lineIndex: LineIndex, dieId: string) {
@@ -282,9 +313,52 @@ function App() {
   }
 
   function addDie() {
+    if (!manualDialog) {
+      return;
+    }
+
     commitState(
-      addManualDie(state, manualOwner, manualLine, manualValue, manualKind),
+      addManualDie(
+        state,
+        manualDialog.owner,
+        manualDialog.lineIndex,
+        manualValue,
+        manualKind
+      ),
       "수동 입력"
+    );
+    setManualDialog(null);
+  }
+
+  function recordGameResult(result: Winner) {
+    const now = new Date().toISOString();
+    const committedObservations = pendingObservations.map((observation) => ({
+      ...observation,
+      committedAt: now,
+      gameResult: result
+    }));
+
+    if (committedObservations.length > 0) {
+      setObservations((current) =>
+        [...committedObservations, ...current].slice(0, 2000)
+      );
+    }
+
+    setGameRecords((current) =>
+      [
+        {
+          id: makeId("game"),
+          createdAt: now,
+          result,
+          observationCount: pendingObservations.length,
+          finalState: state
+        },
+        ...current
+      ].slice(0, 300)
+    );
+    setPendingObservations([]);
+    addLog(
+      `결과 저장: ${RESULT_LABEL[result]} · 관찰 ${pendingObservations.length}개`
     );
   }
 
@@ -293,7 +367,8 @@ function App() {
       exportedAt: new Date().toISOString(),
       state,
       observations,
-      logs
+      pendingObservations,
+      gameRecords
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json"
@@ -311,7 +386,8 @@ function App() {
     const payload = JSON.parse(text) as {
       state?: GameState;
       observations?: ObservationEntry[];
-      logs?: LogEntry[];
+      pendingObservations?: ObservationEntry[];
+      gameRecords?: GameRecord[];
     };
 
     if (payload.state) {
@@ -322,8 +398,12 @@ function App() {
       setObservations(payload.observations);
     }
 
-    if (payload.logs) {
-      setLogs(payload.logs);
+    if (payload.pendingObservations) {
+      setPendingObservations(payload.pendingObservations);
+    }
+
+    if (payload.gameRecords) {
+      setGameRecords(payload.gameRecords);
     }
 
     addLog("백업 불러오기");
@@ -390,6 +470,9 @@ function App() {
             onApply={applyGameAction}
             onRemove={removeDie}
             onToggle={toggleDie}
+            onEmptySlot={(owner, lineIndex) =>
+              setManualDialog({ owner, lineIndex })
+            }
           />
           <div className="turn-strip">
             <SegmentedOwner value={state.turn} onChange={(turn) => setState({ ...state, turn })} />
@@ -411,6 +494,9 @@ function App() {
             onApply={applyGameAction}
             onRemove={removeDie}
             onToggle={toggleDie}
+            onEmptySlot={(owner, lineIndex) =>
+              setManualDialog({ owner, lineIndex })
+            }
           />
         </div>
 
@@ -420,23 +506,16 @@ function App() {
               <Target size={17} />
               <h2>현재 주사위</h2>
             </div>
+            <span className={`roll-status ${state.pendingBonus ? "bonus" : ""}`}>
+              {rollStatus}
+            </span>
             <DieSelector value={rollValue} onChange={setRollValue} />
-            <div className="two-column">
-              <label>
-                타입
-                <select
-                  value={effectiveRollMode}
-                  disabled={Boolean(state.pendingBonus)}
-                  onChange={(event) => setRollMode(event.target.value as RollMode)}
-                >
-                  <option value="normal">일반</option>
-                  <option value="shield">쉴드</option>
-                </select>
-              </label>
+            <div className="single-column">
               <label>
                 리롤값
                 <select
                   value={alternateRollValue ?? ""}
+                  disabled={activeActor !== "player" || Boolean(state.pendingBonus)}
                   onChange={(event) =>
                     setAlternateRollValue(
                       event.target.value ? toDieValue(event.target.value) : null
@@ -453,7 +532,7 @@ function App() {
               </label>
             </div>
 
-            <div className="switch-row">
+            <div className="switch-row two-items">
               <label>
                 <input
                   type="checkbox"
@@ -473,19 +552,6 @@ function App() {
                   }
                 />
                 홀드함
-              </label>
-              <label>
-                <input
-                  type="checkbox"
-                  checked={state.openingShieldOwner === "player"}
-                  onChange={(event) =>
-                    setState({
-                      ...state,
-                      openingShieldOwner: event.target.checked ? "player" : null
-                    })
-                  }
-                />
-                첫 주사위 쉴드
               </label>
             </div>
           </section>
@@ -522,6 +588,12 @@ function App() {
                 </select>
               </label>
             </div>
+            {aiProfile === "observed" && (
+              <span className="model-pill">
+                보정: {AI_PROFILE_LABEL[tunedAiProfile]} · 확정 관찰{" "}
+                {observations.length}개
+              </span>
+            )}
             <button
               className="primary-button"
               onClick={calculateRecommendations}
@@ -533,52 +605,6 @@ function App() {
             {workerError && <p className="error-text">{workerError}</p>}
           </section>
 
-          <section className="panel-section">
-            <div className="section-title">
-              <Plus size={17} />
-              <h2>수동 입력</h2>
-            </div>
-            <div className="manual-grid">
-              <select
-                value={manualOwner}
-                onChange={(event) => setManualOwner(event.target.value as Owner)}
-              >
-                <option value="player">나</option>
-                <option value="opponent">상대</option>
-              </select>
-              <select
-                value={manualLine}
-                onChange={(event) => setManualLine(Number(event.target.value) as LineIndex)}
-              >
-                {lineIndexes().map((lineIndex) => (
-                  <option key={lineIndex} value={lineIndex}>
-                    L{lineIndex + 1}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={manualValue}
-                onChange={(event) => setManualValue(toDieValue(event.target.value))}
-              >
-                {DIE_VALUES.map((value) => (
-                  <option key={value} value={value}>
-                    {value}
-                  </option>
-                ))}
-              </select>
-              <select
-                value={manualKind}
-                onChange={(event) => setManualKind(event.target.value as DieKind)}
-              >
-                <option value="normal">일반</option>
-                <option value="shield">쉴드</option>
-              </select>
-            </div>
-            <button className="secondary-button" onClick={addDie}>
-              <Plus size={16} />
-              추가
-            </button>
-          </section>
         </aside>
 
         <aside className="analysis-panel">
@@ -594,7 +620,7 @@ function App() {
                     key={actionKey(action)}
                     action={action}
                     state={state}
-                    aiProfile={aiProfile}
+                    aiProfile={tunedAiProfile}
                     onApply={applyGameAction}
                   />
                 ))
@@ -631,13 +657,37 @@ function App() {
 
           <section className="panel-section">
             <div className="section-title">
+              <Save size={17} />
+              <h2>결과 저장</h2>
+            </div>
+            <div className="result-actions">
+              <button className="result-button win" onClick={() => recordGameResult("player")}>
+                승리
+              </button>
+              <button className="result-button loss" onClick={() => recordGameResult("opponent")}>
+                패배
+              </button>
+              <button className="result-button draw" onClick={() => recordGameResult("draw")}>
+                무승부
+              </button>
+            </div>
+            <div className="stats-row compact">
+              <span>임시 관찰</span>
+              <strong>{pendingObservations.length}</strong>
+              <span>확정 판수</span>
+              <strong>{gameRecords.length}</strong>
+            </div>
+          </section>
+
+          <section className="panel-section">
+            <div className="section-title">
               <Download size={17} />
               <h2>기록</h2>
             </div>
             <div className="stats-row">
-              <span>관찰</span>
+              <span>확정 관찰</span>
               <strong>{observations.length}</strong>
-              <span>기록</span>
+              <span>로그</span>
               <strong>{logs.length}</strong>
             </div>
             <div className="log-list">
@@ -650,6 +700,17 @@ function App() {
           </section>
         </aside>
       </section>
+      {manualDialog && (
+        <ManualDieDialog
+          dialog={manualDialog}
+          value={manualValue}
+          kind={manualKind}
+          onValueChange={setManualValue}
+          onKindChange={setManualKind}
+          onClose={() => setManualDialog(null)}
+          onConfirm={addDie}
+        />
+      )}
     </main>
   );
 }
@@ -661,6 +722,7 @@ interface BoardSideViewProps {
   onApply: (action: GameAction) => void;
   onRemove: (owner: Owner, lineIndex: LineIndex, dieId: string) => void;
   onToggle: (owner: Owner, lineIndex: LineIndex, die: Die) => void;
+  onEmptySlot: (owner: Owner, lineIndex: LineIndex) => void;
 }
 
 function BoardSideView({
@@ -669,7 +731,8 @@ function BoardSideView({
   legalActions,
   onApply,
   onRemove,
-  onToggle
+  onToggle,
+  onEmptySlot
 }: BoardSideViewProps) {
   const side = state.board[owner];
   const title = owner === "player" ? "내 필드" : "상대 필드";
@@ -711,7 +774,15 @@ function BoardSideView({
                       onToggle={() => onToggle(owner, lineIndex, die)}
                     />
                   ) : (
-                    <div key={slotIndex} className="slot empty" />
+                    <button
+                      key={slotIndex}
+                      className="slot empty slot-button"
+                      onClick={() => onEmptySlot(owner, lineIndex)}
+                      title="주사위 추가"
+                      aria-label={`${title} ${lineIndex + 1}번 라인 주사위 추가`}
+                    >
+                      <Plus size={16} />
+                    </button>
                   );
                 })}
               </div>
@@ -756,6 +827,66 @@ function DiePill({ die, onRemove, onToggle }: DiePillProps) {
       <button className="die-remove" onClick={onRemove} title="주사위 제거">
         <X size={12} />
       </button>
+    </div>
+  );
+}
+
+function ManualDieDialog({
+  dialog,
+  value,
+  kind,
+  onValueChange,
+  onKindChange,
+  onClose,
+  onConfirm
+}: {
+  dialog: ManualDialogState;
+  value: DieValue;
+  kind: DieKind;
+  onValueChange: (value: DieValue) => void;
+  onKindChange: (kind: DieKind) => void;
+  onClose: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="dialog-backdrop" role="presentation" onClick={onClose}>
+      <section
+        className="manual-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="manual-dialog-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="dialog-title">
+          <h2 id="manual-dialog-title">주사위 추가</h2>
+          <button className="icon-button" onClick={onClose} title="닫기">
+            <X size={17} />
+          </button>
+        </div>
+        <p className="dialog-target">
+          {OWNER_LABEL[dialog.owner]} · L{dialog.lineIndex + 1}
+        </p>
+        <DieSelector value={value} onChange={onValueChange} />
+        <div className="kind-selector">
+          <button
+            className={kind === "normal" ? "selected" : ""}
+            onClick={() => onKindChange("normal")}
+          >
+            일반
+          </button>
+          <button
+            className={kind === "shield" ? "selected" : ""}
+            onClick={() => onKindChange("shield")}
+          >
+            <Shield size={15} />
+            쉴드
+          </button>
+        </div>
+        <button className="primary-button" onClick={onConfirm}>
+          <Plus size={16} />
+          추가
+        </button>
+      </section>
     </div>
   );
 }
@@ -852,6 +983,84 @@ function RecommendationRow({
       </span>
     </button>
   );
+}
+
+function inferObservedProfile(observations: ObservationEntry[]): AiProfileName {
+  const recent = observations
+    .filter((entry) => entry.action.actor === "opponent")
+    .slice(0, 200);
+
+  if (recent.length < 6) {
+    return "observed";
+  }
+
+  let knockOpportunities = 0;
+  let knockChoices = 0;
+  let shieldChoices = 0;
+  let lowShieldToPlayer = 0;
+  let highShieldToSelf = 0;
+
+  for (const entry of recent) {
+    const hadKnockOption = entry.legalActions.some((action) => {
+      if (action.type !== "place-normal" || action.actor !== "opponent") {
+        return false;
+      }
+
+      return (
+        normalPlacementWouldKnock(
+          entry.stateBefore,
+          "opponent",
+          action.value,
+          action.lineIndex
+        ).length > 0
+      );
+    });
+
+    if (hadKnockOption) {
+      knockOpportunities += 1;
+    }
+
+    if (
+      entry.action.type === "place-normal" &&
+      normalPlacementWouldKnock(
+        entry.stateBefore,
+        "opponent",
+        entry.action.value,
+        entry.action.lineIndex
+      ).length > 0
+    ) {
+      knockChoices += 1;
+    }
+
+    if (entry.action.type === "place-shield") {
+      shieldChoices += 1;
+      if (entry.action.targetOwner === "player" && entry.action.value <= 2) {
+        lowShieldToPlayer += 1;
+      }
+      if (entry.action.targetOwner === "opponent" && entry.action.value >= 4) {
+        highShieldToSelf += 1;
+      }
+    }
+  }
+
+  const knockRate =
+    knockOpportunities > 0 ? knockChoices / knockOpportunities : 0;
+  const blockRate = shieldChoices > 0 ? lowShieldToPlayer / shieldChoices : 0;
+  const scoreRate = shieldChoices > 0 ? highShieldToSelf / shieldChoices : 0;
+
+  if (blockRate >= 0.45) {
+    return "blocker";
+  }
+
+  if (knockRate >= 0.8) {
+    return "aggressive";
+  }
+
+  if (scoreRate >= 0.55) {
+    return "score";
+  }
+
+  return "observed";
 }
 
 function useLocalStorage<T>(

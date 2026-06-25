@@ -389,6 +389,12 @@ button {
   margin-top: 12px;
 }
 
+.single-column {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
 label {
   display: grid;
   gap: 6px;
@@ -412,6 +418,10 @@ select {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
   margin-top: 12px;
+}
+
+.switch-row.two-items {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .switch-row label {
@@ -461,6 +471,143 @@ select {
   display: grid;
   grid-template-columns: 1.2fr 0.8fr 0.8fr 1fr;
   gap: 8px;
+}
+
+.roll-status,
+.model-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  margin-bottom: 10px;
+  padding: 0 10px;
+  border-radius: 999px;
+  background: #eef1f6;
+  color: #394656;
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.roll-status.bonus {
+  background: #f1ecff;
+  color: #4d3dc4;
+}
+
+.model-pill {
+  margin: 10px 0 0;
+  background: #f7f2df;
+  color: #7a5d00;
+}
+
+.slot-button {
+  display: grid;
+  place-items: center;
+  color: #8b99a9;
+}
+
+.slot-button:hover {
+  border-color: #aeb9c8;
+  color: var(--text);
+}
+
+.result-actions {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.result-button {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: var(--text);
+  font-weight: 900;
+}
+
+.result-button.win {
+  border-color: #a9d9d0;
+  background: var(--good-bg);
+  color: #087c70;
+}
+
+.result-button.loss {
+  border-color: #edc3b6;
+  background: var(--bad-bg);
+  color: #a83b20;
+}
+
+.result-button.draw {
+  background: #eef1f6;
+  color: #52606f;
+}
+
+.stats-row.compact {
+  margin-top: 10px;
+}
+
+.dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(23, 32, 42, 0.36);
+}
+
+.manual-dialog {
+  width: min(360px, 100%);
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.dialog-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.dialog-title h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.dialog-target {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.kind-selector {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.kind-selector button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: var(--text);
+  font-weight: 900;
+}
+
+.kind-selector button.selected {
+  border-color: #74cbbc;
+  background: #edf8f5;
+  color: #0d6f65;
 }
 
 .action-list,
