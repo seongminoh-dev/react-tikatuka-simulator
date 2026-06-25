@@ -14,6 +14,10 @@ import {
 import { useEffect, useMemo, useRef, useState } from "react";
 import { describeActionReason } from "./game/policies";
 import { choosePolicyAction } from "./game/policies";
+import {
+  createInitialLearnedModel,
+  tuneLearnedAiModel
+} from "./game/learning";
 import { recommendActions } from "./game/recommend";
 import {
   actionKey,
@@ -39,6 +43,7 @@ import type {
   GameRecord,
   GameAction,
   GameState,
+  LearnedAiModel,
   LineIndex,
   LogEntry,
   ObservationEntry,
@@ -155,6 +160,11 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
     "tikatuka.gameRecords",
     []
   );
+  const [learnedAiModel, setLearnedAiModel] =
+    useLocalStorage<LearnedAiModel>(
+      "tikatuka.learnedAiModel",
+      createInitialLearnedModel()
+    );
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [history, setHistory] = useState<GameState[]>([]);
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -178,6 +188,8 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
         : aiProfile,
     [aiProfile, observations]
   );
+  const learnedWeights =
+    aiProfile === "observed" ? learnedAiModel.weights : null;
   const rollStatus = state.pendingBonus
     ? `${OWNER_LABEL[state.pendingBonus]} 보너스 쉴드`
     : state.openingShieldOwner === activeActor
@@ -291,6 +303,7 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
       rollMode: effectiveRollMode,
       samplesPerAction,
       aiProfile: tunedAiProfile,
+      learnedWeights,
       seed: Date.now()
     };
 
@@ -396,8 +409,13 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
     }));
 
     if (committedObservations.length > 0) {
-      setObservations((current) =>
-        [...committedObservations, ...current].slice(0, 2000)
+      const nextObservations = [...committedObservations, ...observations].slice(
+        0,
+        2000
+      );
+      setObservations(nextObservations);
+      setLearnedAiModel((current) =>
+        tuneLearnedAiModel(nextObservations, current)
       );
     }
 
@@ -425,7 +443,8 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
       state,
       observations,
       pendingObservations,
-      gameRecords
+      gameRecords,
+      learnedAiModel
     };
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
       type: "application/json"
@@ -445,6 +464,7 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
       observations?: ObservationEntry[];
       pendingObservations?: ObservationEntry[];
       gameRecords?: GameRecord[];
+      learnedAiModel?: LearnedAiModel;
     };
 
     if (payload.state) {
@@ -461,6 +481,10 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
 
     if (payload.gameRecords) {
       setGameRecords(payload.gameRecords);
+    }
+
+    if (payload.learnedAiModel) {
+      setLearnedAiModel(payload.learnedAiModel);
     }
 
     addLog("백업 불러오기");
@@ -651,8 +675,9 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
             </div>
             {aiProfile === "observed" && (
               <span className="model-pill">
-                보정: {AI_PROFILE_LABEL[tunedAiProfile]} · 확정 관찰{" "}
-                {observations.length}개
+                모델 v{learnedAiModel.version} · 확정 관찰{" "}
+                {learnedAiModel.diagnostics.observationCount}개 · 적중{" "}
+                {(learnedAiModel.diagnostics.accuracy * 100).toFixed(0)}%
               </span>
             )}
             <button
@@ -791,6 +816,10 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     "tikatuka.practice.aiProfile",
     "observed"
   );
+  const [learnedAiModel] = useLocalStorage<LearnedAiModel>(
+    "tikatuka.learnedAiModel",
+    createInitialLearnedModel()
+  );
   const [starter, setStarter] = useLocalStorage<Owner>(
     "tikatuka.practice.starter",
     "player"
@@ -814,6 +843,8 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
   const aiTimerRef = useRef<number | null>(null);
 
   const activeActor = practiceState.pendingBonus ?? practiceState.turn;
+  const learnedWeights =
+    aiProfile === "observed" ? learnedAiModel.weights : null;
   const isPlayerBonus = practiceState.pendingBonus === "player";
   const playerRollMode: RollMode = isPlayerBonus ? "shield" : "normal";
   const outcome = useMemo(
@@ -914,6 +945,7 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
       rollMode: playerRollMode,
       samplesPerAction: 260,
       aiProfile,
+      learnedWeights,
       seed: Date.now()
     };
     let cancelled = false;
@@ -972,6 +1004,7 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     activeActor,
     aiProfile,
     currentRoll,
+    learnedWeights,
     playerLegalActions.length,
     playerRollMode,
     practiceAlternateRoll,
@@ -1023,7 +1056,9 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
             value,
             mode,
             aiProfile,
-            rngRef.current
+            rngRef.current,
+            null,
+            learnedWeights
           );
 
           if (!action) {
@@ -1058,6 +1093,7 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
   }, [
     activeActor,
     aiProfile,
+    learnedWeights,
     practiceState,
     setCurrentRoll,
     setPracticeAlternateRoll,

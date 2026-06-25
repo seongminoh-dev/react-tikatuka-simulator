@@ -116,6 +116,54 @@ export interface LogEntry {
 
 export type AiProfileName = "observed" | "aggressive" | "score" | "blocker";
 
+export interface PolicyWeights {
+  knock: number;
+  removedPoint: number;
+  ownScoreGain: number;
+  targetScoreLoss: number;
+  blockLine: number;
+  lowBonusToEnemy: number;
+  highBonusToSelf: number;
+  shieldSafety: number;
+  lineWin: number;
+  totalScore: number;
+  randomJitter: number;
+}
+
+export interface AiMismatchLog {
+  id: string;
+  createdAt: string;
+  rollValue: DieValue;
+  actual: string;
+  predicted: string;
+  actualScore: number;
+  predictedScore: number;
+  gameResult?: Winner;
+}
+
+export interface AiFitDiagnostics {
+  observationCount: number;
+  accuracy: number;
+  top3Accuracy: number;
+  averageActualRank: number;
+  mismatches: AiMismatchLog[];
+}
+
+export interface LearnedAiModel {
+  version: number;
+  updatedAt: string;
+  weights: PolicyWeights;
+  diagnostics: AiFitDiagnostics;
+  updateLog: Array<{
+    id: string;
+    createdAt: string;
+    observationCount: number;
+    accuracy: number;
+    top3Accuracy: number;
+    averageActualRank: number;
+  }>;
+}
+
 export interface RecommendationInput {
   state: GameState;
   actor: Owner;
@@ -124,6 +172,7 @@ export interface RecommendationInput {
   rollMode: RollMode;
   samplesPerAction: number;
   aiProfile: AiProfileName;
+  learnedWeights?: PolicyWeights | null;
   seed: number;
 }
 

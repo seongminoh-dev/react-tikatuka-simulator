@@ -14,22 +14,9 @@ import type {
   GameState,
   LineIndex,
   Owner,
+  PolicyWeights,
   RollMode
 } from "./types";
-
-interface PolicyWeights {
-  knock: number;
-  removedPoint: number;
-  ownScoreGain: number;
-  targetScoreLoss: number;
-  blockLine: number;
-  lowBonusToEnemy: number;
-  highBonusToSelf: number;
-  shieldSafety: number;
-  lineWin: number;
-  totalScore: number;
-  randomJitter: number;
-}
 
 export const AI_PROFILES: Record<AiProfileName, PolicyWeights> = {
   observed: {
@@ -111,13 +98,14 @@ export function scoreActionForActor(
   state: GameState,
   action: GameAction,
   actor: Owner,
-  aiProfile: AiProfileName
+  aiProfile: AiProfileName,
+  learnedWeights?: PolicyWeights | null
 ): number {
   if (actor === "player") {
     return scorePlayerAction(state, action);
   }
 
-  return scoreOpponentAction(state, action, aiProfile);
+  return scoreOpponentAction(state, action, aiProfile, learnedWeights);
 }
 
 function scorePlayerAction(state: GameState, action: GameAction): number {
@@ -184,9 +172,10 @@ function bestPlayerPlacementScore(
 function scoreOpponentAction(
   state: GameState,
   action: GameAction,
-  aiProfile: AiProfileName
+  aiProfile: AiProfileName,
+  learnedWeights?: PolicyWeights | null
 ): number {
-  const weights = AI_PROFILES[aiProfile];
+  const weights = learnedWeights ?? AI_PROFILES[aiProfile];
 
   if (action.type === "hold" || action.type === "reroll") {
     return Number.NEGATIVE_INFINITY;
@@ -284,7 +273,8 @@ export function choosePolicyAction(
   rollMode: RollMode,
   aiProfile: AiProfileName,
   rng: () => number,
-  alternateRollValue: DieValue | null = null
+  alternateRollValue: DieValue | null = null,
+  learnedWeights?: PolicyWeights | null
 ): GameAction | null {
   const actions = legalActionsForRoll(
     state,
@@ -301,11 +291,15 @@ export function choosePolicyAction(
 
   let bestAction = actions[0];
   let bestScore = Number.NEGATIVE_INFINITY;
-  const jitter = actor === "opponent" ? AI_PROFILES[aiProfile].randomJitter : 0.5;
+  const jitter =
+    actor === "opponent"
+      ? (learnedWeights ?? AI_PROFILES[aiProfile]).randomJitter
+      : 0.5;
 
   for (const action of actions) {
     const score =
-      scoreActionForActor(state, action, actor, aiProfile) + rng() * jitter;
+      scoreActionForActor(state, action, actor, aiProfile, learnedWeights) +
+      rng() * jitter;
     if (score > bestScore) {
       bestScore = score;
       bestAction = action;
@@ -321,7 +315,8 @@ export function chooseBestConcretePlayerAction(
   alternateValue: DieValue | null,
   rollMode: RollMode,
   aiProfile: AiProfileName,
-  rng: () => number
+  rng: () => number,
+  learnedWeights?: PolicyWeights | null
 ): GameAction | null {
   const actions = legalActionsForRoll(
     state,
@@ -337,7 +332,8 @@ export function chooseBestConcretePlayerAction(
 
   for (const action of actions) {
     const score =
-      scoreActionForActor(state, action, "player", aiProfile) + rng() * 0.5;
+      scoreActionForActor(state, action, "player", aiProfile, learnedWeights) +
+      rng() * 0.5;
     if (score > bestScore) {
       bestScore = score;
       bestAction = action;

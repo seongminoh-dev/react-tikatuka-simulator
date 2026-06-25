@@ -18,6 +18,7 @@ import type {
   GameAction,
   GameOutcome,
   GameState,
+  PolicyWeights,
   RollMode
 } from "./types";
 
@@ -26,7 +27,8 @@ const MAX_PLAYOUT_STEPS = 160;
 export function simulatePlayout(
   startState: GameState,
   aiProfile: AiProfileName,
-  rng: () => number
+  rng: () => number,
+  learnedWeights?: PolicyWeights | null
 ): GameOutcome {
   let state = cloneState(startState);
 
@@ -44,7 +46,9 @@ export function simulatePlayout(
         bonusValue,
         "shield",
         aiProfile,
-        rng
+        rng,
+        null,
+        learnedWeights
       );
 
       if (!action) {
@@ -65,7 +69,13 @@ export function simulatePlayout(
     }
 
     const rollValue = rollDie(rng);
-    const action = chooseTurnAction(state, rollValue, aiProfile, rng);
+    const action = chooseTurnAction(
+      state,
+      rollValue,
+      aiProfile,
+      rng,
+      learnedWeights
+    );
 
     if (!action) {
       state = advanceTurn(state);
@@ -81,7 +91,8 @@ export function simulatePlayout(
         secondValue,
         "normal",
         aiProfile,
-        rng
+        rng,
+        learnedWeights
       );
       state = concrete ? applyAction(rerolledState, concrete).state : rerolledState;
       continue;
@@ -97,18 +108,29 @@ function chooseTurnAction(
   state: GameState,
   rollValue: DieValue,
   aiProfile: AiProfileName,
-  rng: () => number
+  rng: () => number,
+  learnedWeights?: PolicyWeights | null
 ): GameAction | null {
   const actor = state.turn;
 
-  return choosePolicyAction(state, actor, rollValue, "normal", aiProfile, rng);
+  return choosePolicyAction(
+    state,
+    actor,
+    rollValue,
+    "normal",
+    aiProfile,
+    rng,
+    null,
+    learnedWeights
+  );
 }
 
 export function applyRootActionForSimulation(
   state: GameState,
   action: GameAction,
   rng: () => number,
-  aiProfile: AiProfileName
+  aiProfile: AiProfileName,
+  learnedWeights?: PolicyWeights | null
 ): GameState {
   if (action.type !== "reroll") {
     return applyAction(state, action).state;
@@ -122,7 +144,8 @@ export function applyRootActionForSimulation(
     secondValue,
     "normal",
     aiProfile,
-    rng
+    rng,
+    learnedWeights
   );
 
   return concrete ? applyAction(rerolledState, concrete).state : rerolledState;

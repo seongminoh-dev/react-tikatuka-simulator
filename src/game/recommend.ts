@@ -45,9 +45,15 @@ function evaluateAction(
       state,
       action,
       rng,
-      input.aiProfile
+      input.aiProfile,
+      input.learnedWeights
     );
-    const outcome = simulatePlayout(afterRoot, input.aiProfile, rng);
+    const outcome = simulatePlayout(
+      afterRoot,
+      input.aiProfile,
+      rng,
+      input.learnedWeights
+    );
     scoreDiff += outcome.playerTotal - outcome.opponentTotal;
 
     if (outcome.winner === "player") {
