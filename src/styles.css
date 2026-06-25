@@ -109,6 +109,27 @@ button {
   font-weight: 900;
 }
 
+.starter-select {
+  display: inline-grid;
+  grid-template-columns: auto 86px;
+  align-items: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.starter-select select {
+  height: 30px;
+  padding: 0 6px;
+  border-radius: 6px;
+}
+
 .layout {
   display: grid;
   grid-template-columns: minmax(520px, 1fr) 300px 360px;

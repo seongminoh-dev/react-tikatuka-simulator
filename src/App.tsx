@@ -140,6 +140,10 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
     "tikatuka.aiProfile",
     "observed"
   );
+  const [starter, setStarter] = useLocalStorage<Owner>(
+    "tikatuka.starter",
+    "player"
+  );
   const [observations, setObservations] = useLocalStorage<ObservationEntry[]>(
     "tikatuka.observations",
     []
@@ -198,6 +202,17 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
     ]
   );
   const outcome = useMemo(() => evaluateBoard(state.board), [state.board]);
+
+  function changeStarter(owner: Owner) {
+    setStarter(owner);
+    if (isFreshOpeningState(state)) {
+      setState({
+        ...state,
+        turn: owner,
+        openingShieldOwner: owner
+      });
+    }
+  }
 
   function addLog(message: string) {
     setLogs((current) =>
@@ -330,7 +345,7 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
   }
 
   function resetGame() {
-    commitState(createInitialState(), "새 게임");
+    commitState(createInitialState(starter), "새 게임");
     setAlternateRollValue(null);
     setPendingObservations([]);
   }
@@ -460,6 +475,7 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
         </div>
 
         <div className="topbar-actions">
+          <StarterSelect value={starter} onChange={changeStarter} />
           <button className="nav-button" onClick={() => navigate("/practice")}>
             AI 연습
           </button>
@@ -769,6 +785,10 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     "tikatuka.practice.aiProfile",
     "observed"
   );
+  const [starter, setStarter] = useLocalStorage<Owner>(
+    "tikatuka.practice.starter",
+    "player"
+  );
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [manualDialog, setManualDialog] = useState<ManualDialogState | null>(
     null
@@ -822,6 +842,19 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     (action): action is Extract<GameAction, { type: "hold" }> =>
       action.type === "hold"
   );
+
+  function changePracticeStarter(owner: Owner) {
+    setStarter(owner);
+    if (isFreshOpeningState(practiceState)) {
+      setPracticeState({
+        ...practiceState,
+        turn: owner,
+        openingShieldOwner: owner
+      });
+      setCurrentRoll(null);
+      setPracticeAlternateRoll(null);
+    }
+  }
 
   useEffect(() => {
     if (isTerminal(practiceState)) {
@@ -964,10 +997,13 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
 
           const value = rollDie(rngRef.current);
           const mode: RollMode = current.pendingBonus ? "shield" : "normal";
+          const openingShield =
+            current.openingShieldOwner === "opponent" &&
+            current.board.opponent.flat().length === 0;
           setLastOpponentRoll({
             id: makeId("opponent-roll"),
             value,
-            mode
+            mode: current.pendingBonus || openingShield ? "shield" : "normal"
           });
           const action = choosePolicyAction(
             current,
@@ -984,9 +1020,15 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
 
           const result = applyAction(current, action);
           addPracticeLog(
-            `${mode === "shield" ? "상대 보너스" : "상대"} ${value}: ${formatAction(
-              action
-            )}${result.knocked.length > 0 ? ` · 알까기 ${result.knocked.length}개` : ""}`
+            `${
+              mode === "shield"
+                ? "상대 보너스"
+                : openingShield
+                  ? "상대 첫 쉴드"
+                  : "상대"
+            } ${value}: ${formatAction(action)}${
+              result.knocked.length > 0 ? ` · 알까기 ${result.knocked.length}개` : ""
+            }`
           );
           return result.state;
         });
@@ -1059,7 +1101,7 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
   }
 
   function resetPractice() {
-    setPracticeState(createInitialState());
+    setPracticeState(createInitialState(starter));
     setCurrentRoll(null);
     setPracticeAlternateRoll(null);
     setPracticeRecommendations([]);
@@ -1109,6 +1151,7 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
           </p>
         </div>
         <div className="topbar-actions">
+          <StarterSelect value={starter} onChange={changePracticeStarter} />
           <button className="nav-button" onClick={() => navigate("/")}>
             추천 도구
           </button>
@@ -1583,6 +1626,24 @@ function SegmentedOwner({
   );
 }
 
+function StarterSelect({
+  value,
+  onChange
+}: {
+  value: Owner;
+  onChange: (owner: Owner) => void;
+}) {
+  return (
+    <label className="starter-select">
+      선공
+      <select value={value} onChange={(event) => onChange(event.target.value as Owner)}>
+        <option value="player">나</option>
+        <option value="opponent">상대</option>
+      </select>
+    </label>
+  );
+}
+
 function ActionButton({
   action,
   state,
@@ -1763,6 +1824,14 @@ function toggleDieInState(
   }
 
   return next;
+}
+
+function isFreshOpeningState(state: GameState): boolean {
+  return (
+    state.board.player.flat().length === 0 &&
+    state.board.opponent.flat().length === 0 &&
+    state.pendingBonus === null
+  );
 }
 
 function currentRoute(): string {

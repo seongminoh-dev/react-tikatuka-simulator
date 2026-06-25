@@ -38,13 +38,13 @@ export function createEmptyBoard(): Board {
   };
 }
 
-export function createInitialState(): GameState {
+export function createInitialState(starter: Owner = "player"): GameState {
   return {
     board: createEmptyBoard(),
-    turn: "player",
+    turn: starter,
     playerHeld: false,
     rerollAvailable: true,
-    openingShieldOwner: "player",
+    openingShieldOwner: starter,
     pendingBonus: null
   };
 }
