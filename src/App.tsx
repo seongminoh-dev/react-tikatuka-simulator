@@ -771,6 +771,7 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
   const [manualKind, setManualKind] = useState<DieKind>("normal");
   const [isAiThinking, setIsAiThinking] = useState(false);
   const rngRef = useRef(createRng(Date.now()));
+  const aiTimerRef = useRef<number | null>(null);
 
   const activeActor = practiceState.pendingBonus ?? practiceState.turn;
   const isPlayerBonus = practiceState.pendingBonus === "player";
@@ -828,59 +829,70 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
 
   useEffect(() => {
     if (
-      isAiThinking ||
       isTerminal(practiceState) ||
       activeActor !== "opponent"
     ) {
+      if (activeActor !== "opponent") {
+        setIsAiThinking(false);
+      }
+      return;
+    }
+
+    if (aiTimerRef.current !== null) {
       return;
     }
 
     setIsAiThinking(true);
-    const timer = window.setTimeout(() => {
-      setPracticeState((current) => {
-        const actor = current.pendingBonus ?? current.turn;
+    aiTimerRef.current = window.setTimeout(() => {
+      try {
+        setPracticeState((current) => {
+          const actor = current.pendingBonus ?? current.turn;
 
-        if (actor !== "opponent" || isTerminal(current)) {
-          return current;
-        }
+          if (actor !== "opponent" || isTerminal(current)) {
+            return current;
+          }
 
-        if (!current.pendingBonus && !canAct(current, "opponent")) {
-          return advanceTurn(current);
-        }
+          if (!current.pendingBonus && !canAct(current, "opponent")) {
+            return advanceTurn(current);
+          }
 
-        const value = rollDie(rngRef.current);
-        const mode: RollMode = current.pendingBonus ? "shield" : "normal";
-        const action = choosePolicyAction(
-          current,
-          "opponent",
-          value,
-          mode,
-          aiProfile,
-          rngRef.current
-        );
+          const value = rollDie(rngRef.current);
+          const mode: RollMode = current.pendingBonus ? "shield" : "normal";
+          const action = choosePolicyAction(
+            current,
+            "opponent",
+            value,
+            mode,
+            aiProfile,
+            rngRef.current
+          );
 
-        if (!action) {
-          return advanceTurn(current);
-        }
+          if (!action) {
+            return advanceTurn(current);
+          }
 
-        const result = applyAction(current, action);
+          const result = applyAction(current, action);
+          addPracticeLog(
+            `${mode === "shield" ? "상대 보너스" : "상대"} ${value}: ${formatAction(
+              action
+            )}${result.knocked.length > 0 ? ` · 알까기 ${result.knocked.length}개` : ""}`
+          );
+          return result.state;
+        });
+        setCurrentRoll(null);
+        setPracticeAlternateRoll(null);
+      } catch (error) {
         addPracticeLog(
-          `${mode === "shield" ? "상대 보너스" : "상대"} ${value}: ${formatAction(
-            action
-          )}${result.knocked.length > 0 ? ` · 알까기 ${result.knocked.length}개` : ""}`
+          `AI 오류: ${error instanceof Error ? error.message : String(error)}`
         );
-        return result.state;
-      });
-      setCurrentRoll(null);
-      setPracticeAlternateRoll(null);
-      setIsAiThinking(false);
+      } finally {
+        aiTimerRef.current = null;
+        setIsAiThinking(false);
+      }
     }, 520);
-
-    return () => window.clearTimeout(timer);
   }, [
     activeActor,
     aiProfile,
-    isAiThinking,
     practiceState,
     setCurrentRoll,
     setPracticeAlternateRoll,
