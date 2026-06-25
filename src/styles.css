@@ -297,6 +297,89 @@ button {
   background: var(--surface);
 }
 
+.practice-dice-stage {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+}
+
+.dice-spotlights {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(92px, 1fr));
+  gap: 10px;
+  min-width: 0;
+}
+
+.practice-roll-display {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  min-height: 64px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  overflow: hidden;
+}
+
+.practice-roll-display small,
+.practice-roll-display em {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-style: normal;
+  font-weight: 900;
+}
+
+.practice-roll-display strong {
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  background: #202833;
+  color: #ffffff;
+  font-size: 1.45rem;
+  font-weight: 950;
+  animation: die-pop 0.28s ease both;
+}
+
+.practice-roll-display.player strong {
+  background: var(--player);
+}
+
+.practice-roll-display.opponent strong {
+  background: var(--opponent);
+}
+
+.practice-roll-display.shield strong {
+  background: #edf8f5;
+  color: #0d6f65;
+  border: 1px solid #74cbbc;
+}
+
+.practice-roll-display.thinking strong {
+  animation: die-thinking 0.72s ease-in-out infinite;
+}
+
+.practice-utility-actions {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 6px;
+}
+
+.practice-utility-actions button {
+  height: 34px;
+  min-width: 54px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: var(--text);
+  font-weight: 900;
+}
+
 .segmented,
 .die-selector {
   display: inline-grid;
@@ -672,6 +755,23 @@ select {
   padding: 9px 10px;
 }
 
+.probability-list {
+  display: grid;
+  gap: 8px;
+}
+
+.probability-row {
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  gap: 8px;
+  min-height: 56px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fbfcfe;
+  color: var(--text);
+}
+
 .rank {
   display: grid;
   place-items: center;
@@ -768,6 +868,38 @@ select {
   background: #fbfcfe;
 }
 
+.calculating-note {
+  display: grid;
+  place-items: center;
+  min-height: 80px;
+  border: 1px solid #d8d0ff;
+  border-radius: 8px;
+  background: #f5f2ff;
+  color: #4d3dc4;
+  font-weight: 950;
+}
+
+@keyframes die-pop {
+  from {
+    transform: translateY(-5px) scale(0.92);
+    opacity: 0.2;
+  }
+  to {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+  }
+}
+
+@keyframes die-thinking {
+  0%,
+  100% {
+    transform: rotate(-4deg) scale(0.96);
+  }
+  50% {
+    transform: rotate(4deg) scale(1.04);
+  }
+}
+
 .error-text {
   margin: 10px 0 0;
   color: var(--danger);
@@ -828,6 +960,14 @@ select {
   .turn-strip {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .practice-dice-stage {
+    grid-template-columns: 1fr;
+  }
+
+  .dice-spotlights {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .segmented,

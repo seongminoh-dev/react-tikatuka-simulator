@@ -59,6 +59,12 @@ interface ManualDialogState {
   lineIndex: LineIndex;
 }
 
+interface PracticeRollFlash {
+  id: string;
+  value: DieValue;
+  mode: RollMode;
+}
+
 const DIE_VALUES: DieValue[] = [1, 2, 3, 4, 5, 6];
 const SAMPLE_OPTIONS = [
   { label: "빠르게", value: 140 },
@@ -770,6 +776,14 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
   const [manualValue, setManualValue] = useState<DieValue>(1);
   const [manualKind, setManualKind] = useState<DieKind>("normal");
   const [isAiThinking, setIsAiThinking] = useState(false);
+  const [lastOpponentRoll, setLastOpponentRoll] =
+    useState<PracticeRollFlash | null>(null);
+  const [practiceRecommendations, setPracticeRecommendations] = useState<
+    Recommendation[]
+  >([]);
+  const [isPracticeCalculating, setIsPracticeCalculating] = useState(false);
+  const [practiceRecommendationError, setPracticeRecommendationError] =
+    useState<string | null>(null);
   const rngRef = useRef(createRng(Date.now()));
   const aiTimerRef = useRef<number | null>(null);
 
@@ -800,6 +814,14 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     practiceAlternateRoll,
     practiceState
   ]);
+  const rerollAction = playerLegalActions.find(
+    (action): action is Extract<GameAction, { type: "reroll" }> =>
+      action.type === "reroll"
+  );
+  const holdAction = playerLegalActions.find(
+    (action): action is Extract<GameAction, { type: "hold" }> =>
+      action.type === "hold"
+  );
 
   useEffect(() => {
     if (isTerminal(practiceState)) {
@@ -825,6 +847,90 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     setCurrentRoll,
     setPracticeAlternateRoll,
     setPracticeState
+  ]);
+
+  useEffect(() => {
+    if (
+      isTerminal(practiceState) ||
+      activeActor !== "player" ||
+      currentRoll === null ||
+      playerLegalActions.length === 0
+    ) {
+      setIsPracticeCalculating(false);
+      setPracticeRecommendations([]);
+      return;
+    }
+
+    const input: RecommendationInput = {
+      state: practiceState,
+      actor: "player",
+      rollValue: currentRoll,
+      alternateRollValue: practiceAlternateRoll,
+      rollMode: playerRollMode,
+      samplesPerAction: 260,
+      aiProfile,
+      seed: Date.now()
+    };
+    let cancelled = false;
+    setIsPracticeCalculating(true);
+    setPracticeRecommendationError(null);
+
+    try {
+      const worker = new Worker(
+        new URL("./worker/recommendationWorker.ts", import.meta.url),
+        { type: "module" }
+      );
+
+      worker.onmessage = (
+        event: MessageEvent<
+          | { type: "success"; recommendations: Recommendation[] }
+          | { type: "error"; message: string }
+        >
+      ) => {
+        worker.terminate();
+        if (cancelled) {
+          return;
+        }
+
+        setIsPracticeCalculating(false);
+        if (event.data.type === "error") {
+          setPracticeRecommendationError(event.data.message);
+          return;
+        }
+
+        setPracticeRecommendations(event.data.recommendations);
+      };
+
+      worker.onerror = () => {
+        worker.terminate();
+        if (cancelled) {
+          return;
+        }
+
+        runPracticeRecommendation(input);
+      };
+
+      worker.postMessage(input);
+
+      return () => {
+        cancelled = true;
+        worker.terminate();
+      };
+    } catch {
+      runPracticeRecommendation(input);
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    activeActor,
+    aiProfile,
+    currentRoll,
+    playerLegalActions.length,
+    playerRollMode,
+    practiceAlternateRoll,
+    practiceState
   ]);
 
   useEffect(() => {
@@ -858,6 +964,11 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
 
           const value = rollDie(rngRef.current);
           const mode: RollMode = current.pendingBonus ? "shield" : "normal";
+          setLastOpponentRoll({
+            id: makeId("opponent-roll"),
+            value,
+            mode
+          });
           const action = choosePolicyAction(
             current,
             "opponent",
@@ -912,6 +1023,19 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     );
   }
 
+  function runPracticeRecommendation(input: RecommendationInput) {
+    try {
+      setPracticeRecommendations(recommendActions(input));
+      setPracticeRecommendationError(null);
+    } catch (error) {
+      setPracticeRecommendationError(
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      setIsPracticeCalculating(false);
+    }
+  }
+
   function applyPlayerAction(action: GameAction) {
     if (action.type === "reroll") {
       const result = applyAction(practiceState, action);
@@ -925,6 +1049,8 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     setPracticeState(result.state);
     setCurrentRoll(null);
     setPracticeAlternateRoll(null);
+    setPracticeRecommendations([]);
+    setIsPracticeCalculating(false);
     addPracticeLog(
       `${formatAction(action)}${
         result.knocked.length > 0 ? ` · 알까기 ${result.knocked.length}개` : ""
@@ -936,6 +1062,8 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     setPracticeState(createInitialState());
     setCurrentRoll(null);
     setPracticeAlternateRoll(null);
+    setPracticeRecommendations([]);
+    setLastOpponentRoll(null);
     setLogs([]);
   }
 
@@ -1006,13 +1134,46 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
             onEmptySlot={(owner, lineIndex) => setManualDialog({ owner, lineIndex })}
           />
           <div className="turn-strip">
-            <span className={`actor-pill ${activeActor}`}>{statusText}</span>
-            {currentRoll && activeActor === "player" && (
-              <span className={`roll-status ${isPlayerBonus ? "bonus" : ""}`}>
-                주사위 {currentRoll}
-                {practiceAlternateRoll ? ` / 리롤 ${practiceAlternateRoll}` : ""}
-              </span>
-            )}
+            <div className="practice-dice-stage">
+              <span className={`actor-pill ${activeActor}`}>{statusText}</span>
+              <div className="dice-spotlights">
+                <PracticeRollDisplay
+                  label="상대 주사위"
+                  roll={lastOpponentRoll}
+                  isThinking={activeActor === "opponent" && isAiThinking}
+                  owner="opponent"
+                />
+                <PracticeRollDisplay
+                  label={isPlayerBonus ? "내 보너스" : "내 주사위"}
+                  roll={
+                    currentRoll
+                      ? {
+                          id: `player-${currentRoll}-${practiceAlternateRoll ?? "main"}`,
+                          value: practiceAlternateRoll ?? currentRoll,
+                          mode: isPlayerBonus ? "shield" : "normal"
+                        }
+                      : null
+                  }
+                  alternateValue={practiceAlternateRoll ? currentRoll : null}
+                  isThinking={false}
+                  owner="player"
+                />
+              </div>
+              {(rerollAction || holdAction) && activeActor === "player" && (
+                <div className="practice-utility-actions">
+                  {rerollAction && (
+                    <button onClick={() => applyPlayerAction(rerollAction)}>
+                      리롤
+                    </button>
+                  )}
+                  {holdAction && (
+                    <button onClick={() => applyPlayerAction(holdAction)}>
+                      홀드
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
             <span className="winner-pill neutral">{WINNER_LABEL[outcome.winner]}</span>
           </div>
           <BoardSideView
@@ -1053,25 +1214,15 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
           <section className="panel-section">
             <div className="section-title">
               <Target size={17} />
-              <h2>내 선택지</h2>
+              <h2>자동 확률 계산</h2>
             </div>
-            <div className="action-list">
-              {playerLegalActions.length === 0 ? (
-                <div className="empty-note">
-                  {activeActor === "opponent" ? "AI가 두는 중" : "가능한 Action 없음"}
-                </div>
-              ) : (
-                playerLegalActions.map((action) => (
-                  <ActionButton
-                    key={actionKey(action)}
-                    action={action}
-                    state={practiceState}
-                    aiProfile={aiProfile}
-                    onApply={applyPlayerAction}
-                  />
-                ))
-              )}
-            </div>
+            <PracticeProbabilityPanel
+              isCalculating={isPracticeCalculating}
+              error={practiceRecommendationError}
+              recommendations={practiceRecommendations}
+              activeActor={activeActor}
+              currentRoll={currentRoll}
+            />
           </section>
         </aside>
 
@@ -1122,6 +1273,90 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
         />
       )}
     </main>
+  );
+}
+
+function PracticeRollDisplay({
+  label,
+  roll,
+  alternateValue,
+  isThinking,
+  owner
+}: {
+  label: string;
+  roll: PracticeRollFlash | null;
+  alternateValue?: DieValue | null;
+  isThinking: boolean;
+  owner: Owner;
+}) {
+  return (
+    <div
+      key={roll?.id ?? `${owner}-empty`}
+      className={`practice-roll-display ${owner} ${roll?.mode === "shield" ? "shield" : ""} ${
+        isThinking ? "thinking" : ""
+      }`}
+    >
+      <small>{label}</small>
+      <strong>{isThinking ? "?" : roll?.value ?? "-"}</strong>
+      {alternateValue && <em>리롤 전 {alternateValue}</em>}
+    </div>
+  );
+}
+
+function PracticeProbabilityPanel({
+  isCalculating,
+  error,
+  recommendations,
+  activeActor,
+  currentRoll
+}: {
+  isCalculating: boolean;
+  error: string | null;
+  recommendations: Recommendation[];
+  activeActor: Owner;
+  currentRoll: DieValue | null;
+}) {
+  if (activeActor === "opponent") {
+    return <div className="empty-note">상대 턴이 끝나면 자동 계산</div>;
+  }
+
+  if (currentRoll === null) {
+    return <div className="empty-note">내 주사위 대기 중</div>;
+  }
+
+  if (isCalculating) {
+    return <div className="calculating-note">계산 중</div>;
+  }
+
+  if (error) {
+    return <p className="error-text">{error}</p>;
+  }
+
+  if (recommendations.length === 0) {
+    return <div className="empty-note">계산 결과 없음</div>;
+  }
+
+  return (
+    <div className="probability-list">
+      {recommendations.slice(0, 6).map((recommendation, index) => {
+        const pct = Math.round(recommendation.winRate * 1000) / 10;
+        return (
+          <div key={actionKey(recommendation.action)} className="probability-row">
+            <span className="rank">{index + 1}</span>
+            <span className="rec-main">
+              <strong>{recommendation.label}</strong>
+              <small>
+                승 {pct}% · 무 {(recommendation.drawRate * 100).toFixed(1)}% ·
+                점수차 {recommendation.averageScoreDiff.toFixed(1)}
+              </small>
+            </span>
+            <span className="rec-bar">
+              <i style={{ width: `${Math.max(2, pct)}%` }} />
+            </span>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
