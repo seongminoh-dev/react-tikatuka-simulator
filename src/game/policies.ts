@@ -218,7 +218,9 @@ function scoreOpponentAction(
     );
   }
 
-  const targetBefore = scoreLine(state.board[action.targetOwner][action.lineIndex]);
+  const targetLineBefore = state.board[action.targetOwner][action.lineIndex];
+  const targetBefore = scoreLine(targetLineBefore);
+  const beforeOutcome = evaluateBoard(state.board);
   let after: GameState;
   try {
     after = applyAction(state, action).state;
@@ -232,17 +234,40 @@ function scoreOpponentAction(
   const lowBonus = action.value <= 2;
   const highBonus = action.value >= 4;
   const outcome = evaluateBoard(after.board);
+  const scoreGift = Math.max(0, targetAfter - targetBefore);
+  const lineSwing =
+    outcome.opponentLineWins -
+    outcome.playerLineWins -
+    (beforeOutcome.opponentLineWins - beforeOutcome.playerLineWins);
+  const totalSwing =
+    outcome.opponentTotal -
+    outcome.playerTotal -
+    (beforeOutcome.opponentTotal - beforeOutcome.playerTotal);
+
+  if (targetIsEnemy) {
+    const slotPressure = targetLineBefore.length + 1;
+    const lowValueBlock =
+      lowBonus ? weights.lowBonusToEnemy + targetBefore * 8 + slotPressure * 18 : 0;
+
+    return (
+      Math.max(0, targetBefore - targetAfter) * weights.targetScoreLoss +
+      lowValueBlock +
+      (lineFilled ? weights.blockLine : 0) -
+      scoreGift * (lowBonus ? 6 : 11) -
+      (highBonus ? action.value * 14 : 0) +
+      lineSwing * weights.lineWin * 0.45 +
+      totalSwing * weights.totalScore
+    );
+  }
 
   return (
-    (targetIsEnemy
-      ? Math.max(0, targetBefore - targetAfter) * weights.targetScoreLoss
-      : Math.max(0, targetAfter - targetBefore) * weights.ownScoreGain) +
-    (targetIsEnemy && lineFilled ? weights.blockLine : 0) +
-    (targetIsEnemy && lowBonus ? weights.lowBonusToEnemy : 0) +
-    (!targetIsEnemy && highBonus ? weights.highBonusToSelf : 0) +
-    (!targetIsEnemy ? weights.shieldSafety : 0) +
-    (outcome.opponentLineWins - outcome.playerLineWins) * weights.lineWin +
-    (outcome.opponentTotal - outcome.playerTotal) * weights.totalScore
+    Math.max(0, targetAfter - targetBefore) * weights.ownScoreGain +
+    (highBonus ? weights.highBonusToSelf : 0) +
+    (action.value >= 3 ? weights.shieldSafety : 0) -
+    (lowBonus ? weights.lowBonusToEnemy * 0.85 : 0) -
+    (lowBonus && targetLineBefore.length === 0 ? 30 : 0) +
+    lineSwing * weights.lineWin * 0.45 +
+    totalSwing * weights.totalScore
   );
 }
 
