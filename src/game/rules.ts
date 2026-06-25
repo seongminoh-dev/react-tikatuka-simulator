@@ -272,10 +272,14 @@ export function legalActionsForRoll(
   alternateRollValue: DieValue | null = null,
   includeReroll = true
 ): GameAction[] {
-  const values = alternateRollValue
+  const validAlternate =
+    alternateRollValue && alternateRollValue !== rollValue
+      ? alternateRollValue
+      : null;
+  const values = validAlternate
     ? [
         { value: rollValue, usesAlternate: false },
-        { value: alternateRollValue, usesAlternate: true }
+        { value: validAlternate, usesAlternate: true }
       ]
     : [{ value: rollValue, usesAlternate: false }];
   const actions: GameAction[] = [];

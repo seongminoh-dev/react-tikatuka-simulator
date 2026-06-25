@@ -11,7 +11,7 @@ import {
   chooseBestConcretePlayerAction,
   choosePolicyAction
 } from "./policies";
-import { rollDie } from "./random";
+import { rollDie, rollDifferentDie } from "./random";
 import type {
   AiProfileName,
   DieValue,
@@ -73,7 +73,7 @@ export function simulatePlayout(
     }
 
     if (action.type === "reroll") {
-      const secondValue = rollDie(rng);
+      const secondValue = rollDifferentDie(rng, rollValue);
       const rerolledState = applyAction(state, action).state;
       const concrete = chooseBestConcretePlayerAction(
         rerolledState,
@@ -115,7 +115,7 @@ export function applyRootActionForSimulation(
   }
 
   const rerolledState = applyAction(state, action).state;
-  const secondValue = rollDie(rng);
+  const secondValue = rollDifferentDie(rng, action.value);
   const concrete = chooseBestConcretePlayerAction(
     rerolledState,
     action.value,

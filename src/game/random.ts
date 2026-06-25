@@ -13,3 +13,11 @@ export function createRng(seed: number): () => number {
 export function rollDie(rng: () => number): 1 | 2 | 3 | 4 | 5 | 6 {
   return (Math.floor(rng() * 6) + 1) as 1 | 2 | 3 | 4 | 5 | 6;
 }
+
+export function rollDifferentDie(
+  rng: () => number,
+  excluded: 1 | 2 | 3 | 4 | 5 | 6
+): 1 | 2 | 3 | 4 | 5 | 6 {
+  const rolled = (Math.floor(rng() * 5) + 1) as 1 | 2 | 3 | 4 | 5;
+  return (rolled >= excluded ? rolled + 1 : rolled) as 1 | 2 | 3 | 4 | 5 | 6;
+}

@@ -139,8 +139,14 @@ function scorePlayerAction(state: GameState, action: GameAction): number {
 function estimatePlayerRerollValue(state: GameState, currentValue: DieValue): number {
   const base = bestPlayerPlacementScore(state, currentValue, null);
   let rerollTotal = 0;
+  let rerollCases = 0;
 
   for (let value = 1; value <= 6; value += 1) {
+    if (value === currentValue) {
+      continue;
+    }
+
+    rerollCases += 1;
     rerollTotal += bestPlayerPlacementScore(
       {
         ...state,
@@ -151,7 +157,7 @@ function estimatePlayerRerollValue(state: GameState, currentValue: DieValue): nu
     );
   }
 
-  return rerollTotal / 6 - base - 4;
+  return rerollTotal / rerollCases - base - 4;
 }
 
 function bestPlayerPlacementScore(

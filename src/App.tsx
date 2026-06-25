@@ -29,7 +29,7 @@ import {
   normalPlacementWouldKnock,
   removeDieAt
 } from "./game/rules";
-import { createRng, rollDie } from "./game/random";
+import { createRng, rollDie, rollDifferentDie } from "./game/random";
 import { evaluateBoard, scoreLine } from "./game/scoring";
 import type {
   AiProfileName,
@@ -202,6 +202,12 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
     ]
   );
   const outcome = useMemo(() => evaluateBoard(state.board), [state.board]);
+
+  useEffect(() => {
+    if (alternateRollValue === rollValue) {
+      setAlternateRollValue(null);
+    }
+  }, [alternateRollValue, rollValue, setAlternateRollValue]);
 
   function changeStarter(owner: Owner) {
     setStarter(owner);
@@ -578,7 +584,7 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
                   }
                 >
                   <option value="">없음</option>
-                  {DIE_VALUES.map((value) => (
+                  {DIE_VALUES.filter((value) => value !== rollValue).map((value) => (
                     <option key={value} value={value}>
                       {value}
                     </option>
@@ -843,6 +849,12 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
       action.type === "hold"
   );
 
+  useEffect(() => {
+    if (currentRoll !== null && practiceAlternateRoll === currentRoll) {
+      setPracticeAlternateRoll(null);
+    }
+  }, [currentRoll, practiceAlternateRoll, setPracticeAlternateRoll]);
+
   function changePracticeStarter(owner: Owner) {
     setStarter(owner);
     if (isFreshOpeningState(practiceState)) {
@@ -1082,7 +1094,7 @@ function PracticeView({ navigate }: { navigate: (path: string) => void }) {
     if (action.type === "reroll") {
       const result = applyAction(practiceState, action);
       setPracticeState(result.state);
-      setPracticeAlternateRoll(rollDie(rngRef.current));
+      setPracticeAlternateRoll(rollDifferentDie(rngRef.current, action.value));
       addPracticeLog("리롤 사용");
       return;
     }
