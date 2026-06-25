@@ -13,18 +13,23 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { describeActionReason } from "./game/policies";
+import { choosePolicyAction } from "./game/policies";
 import { recommendActions } from "./game/recommend";
 import {
   actionKey,
   addManualDie,
+  advanceTurn,
   applyAction,
+  canAct,
   createInitialState,
   formatAction,
+  isTerminal,
   legalActionsForRoll,
   lineIndexes,
   normalPlacementWouldKnock,
   removeDieAt
 } from "./game/rules";
+import { createRng, rollDie } from "./game/random";
 import { evaluateBoard, scoreLine } from "./game/scoring";
 import type {
   AiProfileName,
@@ -86,6 +91,31 @@ const AI_PROFILE_LABEL: Record<AiProfileName, string> = {
 };
 
 function App() {
+  const [route, setRoute] = useState(() => currentRoute());
+
+  useEffect(() => {
+    const onRouteChange = () => setRoute(currentRoute());
+    window.addEventListener("popstate", onRouteChange);
+    window.addEventListener("hashchange", onRouteChange);
+    return () => {
+      window.removeEventListener("popstate", onRouteChange);
+      window.removeEventListener("hashchange", onRouteChange);
+    };
+  }, []);
+
+  function navigate(path: string) {
+    window.history.pushState(null, "", path);
+    setRoute(currentRoute());
+  }
+
+  if (route === "/practice") {
+    return <PracticeView navigate={navigate} />;
+  }
+
+  return <SimulatorView navigate={navigate} />;
+}
+
+function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
   const [state, setState] = useLocalStorage<GameState>(
     "tikatuka.state",
     createInitialState()
@@ -424,6 +454,9 @@ function App() {
         </div>
 
         <div className="topbar-actions">
+          <button className="nav-button" onClick={() => navigate("/practice")}>
+            AI 연습
+          </button>
           <span className="save-pill" title="현재 브라우저에 자동 저장됩니다">
             <Save size={16} />
             자동 저장
@@ -709,6 +742,371 @@ function App() {
           onKindChange={setManualKind}
           onClose={() => setManualDialog(null)}
           onConfirm={addDie}
+        />
+      )}
+    </main>
+  );
+}
+
+function PracticeView({ navigate }: { navigate: (path: string) => void }) {
+  const [practiceState, setPracticeState] = useLocalStorage<GameState>(
+    "tikatuka.practice.state",
+    createInitialState()
+  );
+  const [currentRoll, setCurrentRoll] = useLocalStorage<DieValue | null>(
+    "tikatuka.practice.roll",
+    null
+  );
+  const [practiceAlternateRoll, setPracticeAlternateRoll] =
+    useLocalStorage<DieValue | null>("tikatuka.practice.alternateRoll", null);
+  const [aiProfile, setAiProfile] = useLocalStorage<AiProfileName>(
+    "tikatuka.practice.aiProfile",
+    "observed"
+  );
+  const [logs, setLogs] = useState<LogEntry[]>([]);
+  const [manualDialog, setManualDialog] = useState<ManualDialogState | null>(
+    null
+  );
+  const [manualValue, setManualValue] = useState<DieValue>(1);
+  const [manualKind, setManualKind] = useState<DieKind>("normal");
+  const [isAiThinking, setIsAiThinking] = useState(false);
+  const rngRef = useRef(createRng(Date.now()));
+
+  const activeActor = practiceState.pendingBonus ?? practiceState.turn;
+  const isPlayerBonus = practiceState.pendingBonus === "player";
+  const playerRollMode: RollMode = isPlayerBonus ? "shield" : "normal";
+  const outcome = useMemo(
+    () => evaluateBoard(practiceState.board),
+    [practiceState.board]
+  );
+  const playerLegalActions = useMemo(() => {
+    if (activeActor !== "player" || currentRoll === null) {
+      return [];
+    }
+
+    return legalActionsForRoll(
+      practiceState,
+      "player",
+      currentRoll,
+      playerRollMode,
+      practiceAlternateRoll,
+      true
+    );
+  }, [
+    activeActor,
+    currentRoll,
+    playerRollMode,
+    practiceAlternateRoll,
+    practiceState
+  ]);
+
+  useEffect(() => {
+    if (isTerminal(practiceState)) {
+      return;
+    }
+
+    if (activeActor === "player") {
+      if (!practiceState.pendingBonus && !canAct(practiceState, "player")) {
+        setPracticeState(advanceTurn(practiceState));
+        setCurrentRoll(null);
+        setPracticeAlternateRoll(null);
+        return;
+      }
+
+      if (currentRoll === null) {
+        setCurrentRoll(rollDie(rngRef.current));
+      }
+    }
+  }, [
+    activeActor,
+    currentRoll,
+    practiceState,
+    setCurrentRoll,
+    setPracticeAlternateRoll,
+    setPracticeState
+  ]);
+
+  useEffect(() => {
+    if (
+      isAiThinking ||
+      isTerminal(practiceState) ||
+      activeActor !== "opponent"
+    ) {
+      return;
+    }
+
+    setIsAiThinking(true);
+    const timer = window.setTimeout(() => {
+      setPracticeState((current) => {
+        const actor = current.pendingBonus ?? current.turn;
+
+        if (actor !== "opponent" || isTerminal(current)) {
+          return current;
+        }
+
+        if (!current.pendingBonus && !canAct(current, "opponent")) {
+          return advanceTurn(current);
+        }
+
+        const value = rollDie(rngRef.current);
+        const mode: RollMode = current.pendingBonus ? "shield" : "normal";
+        const action = choosePolicyAction(
+          current,
+          "opponent",
+          value,
+          mode,
+          aiProfile,
+          rngRef.current
+        );
+
+        if (!action) {
+          return advanceTurn(current);
+        }
+
+        const result = applyAction(current, action);
+        addPracticeLog(
+          `${mode === "shield" ? "상대 보너스" : "상대"} ${value}: ${formatAction(
+            action
+          )}${result.knocked.length > 0 ? ` · 알까기 ${result.knocked.length}개` : ""}`
+        );
+        return result.state;
+      });
+      setCurrentRoll(null);
+      setPracticeAlternateRoll(null);
+      setIsAiThinking(false);
+    }, 520);
+
+    return () => window.clearTimeout(timer);
+  }, [
+    activeActor,
+    aiProfile,
+    isAiThinking,
+    practiceState,
+    setCurrentRoll,
+    setPracticeAlternateRoll,
+    setPracticeState
+  ]);
+
+  function addPracticeLog(message: string) {
+    setLogs((current) =>
+      [
+        {
+          id: makeId("practice-log"),
+          createdAt: new Date().toISOString(),
+          message
+        },
+        ...current
+      ].slice(0, 60)
+    );
+  }
+
+  function applyPlayerAction(action: GameAction) {
+    if (action.type === "reroll") {
+      const result = applyAction(practiceState, action);
+      setPracticeState(result.state);
+      setPracticeAlternateRoll(rollDie(rngRef.current));
+      addPracticeLog("리롤 사용");
+      return;
+    }
+
+    const result = applyAction(practiceState, action);
+    setPracticeState(result.state);
+    setCurrentRoll(null);
+    setPracticeAlternateRoll(null);
+    addPracticeLog(
+      `${formatAction(action)}${
+        result.knocked.length > 0 ? ` · 알까기 ${result.knocked.length}개` : ""
+      }`
+    );
+  }
+
+  function resetPractice() {
+    setPracticeState(createInitialState());
+    setCurrentRoll(null);
+    setPracticeAlternateRoll(null);
+    setLogs([]);
+  }
+
+  function addPracticeDie() {
+    if (!manualDialog) {
+      return;
+    }
+
+    setPracticeState((current) =>
+      addManualDie(
+        current,
+        manualDialog.owner,
+        manualDialog.lineIndex,
+        manualValue,
+        manualKind
+      )
+    );
+    setManualDialog(null);
+    addPracticeLog("수동 입력");
+  }
+
+  const statusText = isTerminal(practiceState)
+    ? `게임 종료: ${RESULT_LABEL[outcome.winner]}`
+    : activeActor === "opponent"
+      ? isAiThinking
+        ? "AI 생각 중"
+        : "AI 턴"
+      : isPlayerBonus
+        ? "내 보너스 쉴드"
+        : practiceState.openingShieldOwner === "player" &&
+            practiceState.board.player.flat().length === 0
+          ? "첫 주사위 자동 쉴드"
+          : "내 턴";
+
+  return (
+    <main className="app-shell">
+      <section className="topbar">
+        <div>
+          <h1>AI 연습 모드</h1>
+          <p>
+            라인 {outcome.playerLineWins}:{outcome.opponentLineWins} · 총점{" "}
+            {outcome.playerTotal}-{outcome.opponentTotal}
+          </p>
+        </div>
+        <div className="topbar-actions">
+          <button className="nav-button" onClick={() => navigate("/")}>
+            추천 도구
+          </button>
+          <button className="icon-button" onClick={resetPractice} title="새 연습">
+            <RotateCcw size={18} />
+          </button>
+        </div>
+      </section>
+
+      <section className="layout practice-layout">
+        <div className="board-panel">
+          <BoardSideView
+            owner="opponent"
+            state={practiceState}
+            legalActions={playerLegalActions}
+            onApply={applyPlayerAction}
+            onRemove={(owner, lineIndex, dieId) =>
+              setPracticeState((current) => removeDieAt(current, owner, lineIndex, dieId))
+            }
+            onToggle={(owner, lineIndex, die) =>
+              setPracticeState((current) => toggleDieInState(current, owner, lineIndex, die.id))
+            }
+            onEmptySlot={(owner, lineIndex) => setManualDialog({ owner, lineIndex })}
+          />
+          <div className="turn-strip">
+            <span className={`actor-pill ${activeActor}`}>{statusText}</span>
+            {currentRoll && activeActor === "player" && (
+              <span className={`roll-status ${isPlayerBonus ? "bonus" : ""}`}>
+                주사위 {currentRoll}
+                {practiceAlternateRoll ? ` / 리롤 ${practiceAlternateRoll}` : ""}
+              </span>
+            )}
+            <span className="winner-pill neutral">{WINNER_LABEL[outcome.winner]}</span>
+          </div>
+          <BoardSideView
+            owner="player"
+            state={practiceState}
+            legalActions={playerLegalActions}
+            onApply={applyPlayerAction}
+            onRemove={(owner, lineIndex, dieId) =>
+              setPracticeState((current) => removeDieAt(current, owner, lineIndex, dieId))
+            }
+            onToggle={(owner, lineIndex, die) =>
+              setPracticeState((current) => toggleDieInState(current, owner, lineIndex, die.id))
+            }
+            onEmptySlot={(owner, lineIndex) => setManualDialog({ owner, lineIndex })}
+          />
+        </div>
+
+        <aside className="control-panel">
+          <section className="panel-section">
+            <div className="section-title">
+              <Brain size={17} />
+              <h2>상대 AI</h2>
+            </div>
+            <label>
+              성향
+              <select
+                value={aiProfile}
+                onChange={(event) => setAiProfile(event.target.value as AiProfileName)}
+              >
+                <option value="observed">{AI_PROFILE_LABEL.observed}</option>
+                <option value="aggressive">{AI_PROFILE_LABEL.aggressive}</option>
+                <option value="score">{AI_PROFILE_LABEL.score}</option>
+                <option value="blocker">{AI_PROFILE_LABEL.blocker}</option>
+              </select>
+            </label>
+          </section>
+
+          <section className="panel-section">
+            <div className="section-title">
+              <Target size={17} />
+              <h2>내 선택지</h2>
+            </div>
+            <div className="action-list">
+              {playerLegalActions.length === 0 ? (
+                <div className="empty-note">
+                  {activeActor === "opponent" ? "AI가 두는 중" : "가능한 Action 없음"}
+                </div>
+              ) : (
+                playerLegalActions.map((action) => (
+                  <ActionButton
+                    key={actionKey(action)}
+                    action={action}
+                    state={practiceState}
+                    aiProfile={aiProfile}
+                    onApply={applyPlayerAction}
+                  />
+                ))
+              )}
+            </div>
+          </section>
+        </aside>
+
+        <aside className="analysis-panel practice-analysis">
+          <section className="panel-section">
+            <div className="section-title">
+              <Shield size={17} />
+              <h2>라인 점수</h2>
+            </div>
+            <div className="line-summary">
+              {outcome.lineOutcomes.map((line, index) => (
+                <div key={index} className="summary-row">
+                  <span>L{index + 1}</span>
+                  <strong>
+                    {line.playerScore} - {line.opponentScore}
+                  </strong>
+                  <span className={line.winner}>{WINNER_LABEL[line.winner]}</span>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section className="panel-section">
+            <div className="section-title">
+              <Download size={17} />
+              <h2>연습 로그</h2>
+            </div>
+            <div className="log-list">
+              {logs.slice(0, 10).map((log) => (
+                <div key={log.id} className="log-row">
+                  {log.message}
+                </div>
+              ))}
+            </div>
+          </section>
+        </aside>
+      </section>
+
+      {manualDialog && (
+        <ManualDieDialog
+          dialog={manualDialog}
+          value={manualValue}
+          kind={manualKind}
+          onValueChange={setManualValue}
+          onKindChange={setManualKind}
+          onClose={() => setManualDialog(null)}
+          onConfirm={addPracticeDie}
         />
       )}
     </main>
@@ -1102,6 +1500,34 @@ function structuredCloneSafe<T>(value: T): T {
   }
 
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function toggleDieInState(
+  state: GameState,
+  owner: Owner,
+  lineIndex: LineIndex,
+  dieId: string
+): GameState {
+  const next = structuredCloneSafe(state);
+  const target = next.board[owner][lineIndex].find((die) => die.id === dieId);
+
+  if (target) {
+    target.kind = target.kind === "normal" ? "shield" : "normal";
+  }
+
+  return next;
+}
+
+function currentRoute(): string {
+  if (window.location.pathname === "/practice") {
+    return "/practice";
+  }
+
+  if (window.location.hash === "#/practice") {
+    return "/practice";
+  }
+
+  return "/";
 }
 
 function makeId(prefix: string): string {
