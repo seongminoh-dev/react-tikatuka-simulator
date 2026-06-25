@@ -1,18 +1,22 @@
-# TikaTuka Simulator
+# 티카투카 시뮬레이터
 
-TikaTuka mini-game helper for entering the current board, estimating action win rates, and logging observed opponent decisions.
+티카투카 미니게임의 현재 필드를 입력하고, Action별 예상 승률과 추천 수를 계산하는 브라우저 앱입니다.
 
-## Local development
+## 저장 방식
+
+보드 상태, 현재 주사위, 리롤/홀드 설정, 상대 행동 관찰 로그는 현재 브라우저의 `localStorage`에 자동 저장됩니다. 매 판마다 내보내기할 필요는 없습니다.
+
+`백업 내보내기`는 다른 기기로 옮기거나 데이터를 보관할 때 사용합니다.
+
+## 로컬 실행
 
 ```bash
 npm install
 npm run dev
 ```
 
-## Build
+## 빌드
 
 ```bash
 npm run build
 ```
-
-The app is designed to run entirely in the browser first. Opponent observations are stored locally and can be exported as JSON for later tuning.

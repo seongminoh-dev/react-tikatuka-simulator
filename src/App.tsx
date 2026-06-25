@@ -1,13 +1,12 @@
 import {
   Brain,
   Download,
-  Pause,
   Play,
   Plus,
   RotateCcw,
+  Save,
   Shield,
   Target,
-  Trash2,
   Undo2,
   Upload,
   X
@@ -49,10 +48,28 @@ type PlacementAction = Extract<GameAction, { type: "place-normal" }> | Extract<
 
 const DIE_VALUES: DieValue[] = [1, 2, 3, 4, 5, 6];
 const SAMPLE_OPTIONS = [
-  { label: "Fast", value: 140 },
-  { label: "Balanced", value: 520 },
-  { label: "Deep", value: 1200 }
+  { label: "빠르게", value: 140 },
+  { label: "균형", value: 520 },
+  { label: "깊게", value: 1200 }
 ];
+
+const OWNER_LABEL: Record<Owner, string> = {
+  player: "나",
+  opponent: "상대"
+};
+
+const WINNER_LABEL = {
+  player: "내 승리",
+  opponent: "상대 우세",
+  draw: "무승부"
+};
+
+const AI_PROFILE_LABEL: Record<AiProfileName, string> = {
+  observed: "관찰형",
+  aggressive: "알까기 우선",
+  score: "점수 우선",
+  blocker: "방해 우선"
+};
 
 function App() {
   const [state, setState] = useLocalStorage<GameState>(
@@ -242,7 +259,7 @@ function App() {
 
     setState(previous);
     setHistory(rest);
-    addLog("Undo");
+    addLog("되돌리기");
   }
 
   function resetGame() {
@@ -309,7 +326,7 @@ function App() {
       setLogs(payload.logs);
     }
 
-    addLog("JSON Import");
+    addLog("백업 불러오기");
   }
 
   const winnerClass =
@@ -319,27 +336,32 @@ function App() {
     <main className="app-shell">
       <section className="topbar">
         <div>
-          <h1>TikaTuka Simulator</h1>
+          <h1>티카투카 시뮬레이터</h1>
           <p>
-            {outcome.playerLineWins}:{outcome.opponentLineWins} ·{" "}
+            라인 {outcome.playerLineWins}:{outcome.opponentLineWins} · 총점{" "}
             {outcome.playerTotal}-{outcome.opponentTotal}
           </p>
         </div>
 
         <div className="topbar-actions">
-          <button className="icon-button" onClick={undo} title="Undo">
+          <span className="save-pill" title="현재 브라우저에 자동 저장됩니다">
+            <Save size={16} />
+            자동 저장
+          </span>
+          <button className="icon-button" onClick={undo} title="되돌리기" aria-label="되돌리기">
             <Undo2 size={18} />
           </button>
-          <button className="icon-button" onClick={resetGame} title="Reset">
+          <button className="icon-button" onClick={resetGame} title="새 게임" aria-label="새 게임">
             <RotateCcw size={18} />
           </button>
-          <button className="icon-button" onClick={exportData} title="Export">
+          <button className="icon-button" onClick={exportData} title="백업 내보내기" aria-label="백업 내보내기">
             <Download size={18} />
           </button>
           <button
             className="icon-button"
             onClick={() => fileInputRef.current?.click()}
-            title="Import"
+            title="백업 불러오기"
+            aria-label="백업 불러오기"
           >
             <Upload size={18} />
           </button>
@@ -371,17 +393,14 @@ function App() {
           />
           <div className="turn-strip">
             <SegmentedOwner value={state.turn} onChange={(turn) => setState({ ...state, turn })} />
+            <span className="actor-pill">현재 행동: {OWNER_LABEL[activeActor]}</span>
             <span className={`winner-pill ${winnerClass}`}>
-              {outcome.winner === "draw"
-                ? "DRAW"
-                : outcome.winner === "player"
-                  ? "PLAYER"
-                  : "OPPONENT"}
+              {WINNER_LABEL[outcome.winner]}
             </span>
             {state.pendingBonus && (
               <span className="bonus-pill">
                 <Shield size={15} />
-                {state.pendingBonus === "player" ? "내 보너스" : "상대 보너스"}
+                {OWNER_LABEL[state.pendingBonus]} 보너스
               </span>
             )}
           </div>
@@ -399,23 +418,23 @@ function App() {
           <section className="panel-section">
             <div className="section-title">
               <Target size={17} />
-              <h2>Roll</h2>
+              <h2>현재 주사위</h2>
             </div>
             <DieSelector value={rollValue} onChange={setRollValue} />
             <div className="two-column">
               <label>
-                Mode
+                타입
                 <select
                   value={effectiveRollMode}
                   disabled={Boolean(state.pendingBonus)}
                   onChange={(event) => setRollMode(event.target.value as RollMode)}
                 >
-                  <option value="normal">Normal</option>
-                  <option value="shield">Shield</option>
+                  <option value="normal">일반</option>
+                  <option value="shield">쉴드</option>
                 </select>
               </label>
               <label>
-                Alt
+                리롤값
                 <select
                   value={alternateRollValue ?? ""}
                   onChange={(event) =>
@@ -424,7 +443,7 @@ function App() {
                     )
                   }
                 >
-                  <option value="">None</option>
+                  <option value="">없음</option>
                   {DIE_VALUES.map((value) => (
                     <option key={value} value={value}>
                       {value}
@@ -443,7 +462,7 @@ function App() {
                     setState({ ...state, rerollAvailable: event.target.checked })
                   }
                 />
-                Reroll
+                리롤 가능
               </label>
               <label>
                 <input
@@ -453,7 +472,7 @@ function App() {
                     setState({ ...state, playerHeld: event.target.checked })
                   }
                 />
-                Hold
+                홀드함
               </label>
               <label>
                 <input
@@ -466,7 +485,7 @@ function App() {
                     })
                   }
                 />
-                1st shield
+                첫 주사위 쉴드
               </label>
             </div>
           </section>
@@ -474,23 +493,23 @@ function App() {
           <section className="panel-section">
             <div className="section-title">
               <Brain size={17} />
-              <h2>Recommend</h2>
+              <h2>추천 계산</h2>
             </div>
             <div className="two-column">
               <label>
-                Profile
+                AI 성향
                 <select
                   value={aiProfile}
                   onChange={(event) => setAiProfile(event.target.value as AiProfileName)}
                 >
-                  <option value="observed">Observed</option>
-                  <option value="aggressive">Aggressive</option>
-                  <option value="score">Score</option>
-                  <option value="blocker">Blocker</option>
+                  <option value="observed">{AI_PROFILE_LABEL.observed}</option>
+                  <option value="aggressive">{AI_PROFILE_LABEL.aggressive}</option>
+                  <option value="score">{AI_PROFILE_LABEL.score}</option>
+                  <option value="blocker">{AI_PROFILE_LABEL.blocker}</option>
                 </select>
               </label>
               <label>
-                Samples
+                정밀도
                 <select
                   value={samplesPerAction}
                   onChange={(event) => setSamplesPerAction(Number(event.target.value))}
@@ -509,7 +528,7 @@ function App() {
               disabled={isCalculating}
             >
               <Play size={17} />
-              {isCalculating ? "Calculating" : "Calculate"}
+              {isCalculating ? "계산 중" : "추천 계산"}
             </button>
             {workerError && <p className="error-text">{workerError}</p>}
           </section>
@@ -517,15 +536,15 @@ function App() {
           <section className="panel-section">
             <div className="section-title">
               <Plus size={17} />
-              <h2>Manual</h2>
+              <h2>수동 입력</h2>
             </div>
             <div className="manual-grid">
               <select
                 value={manualOwner}
                 onChange={(event) => setManualOwner(event.target.value as Owner)}
               >
-                <option value="player">Player</option>
-                <option value="opponent">Opponent</option>
+                <option value="player">나</option>
+                <option value="opponent">상대</option>
               </select>
               <select
                 value={manualLine}
@@ -551,13 +570,13 @@ function App() {
                 value={manualKind}
                 onChange={(event) => setManualKind(event.target.value as DieKind)}
               >
-                <option value="normal">Normal</option>
-                <option value="shield">Shield</option>
+                <option value="normal">일반</option>
+                <option value="shield">쉴드</option>
               </select>
             </div>
             <button className="secondary-button" onClick={addDie}>
               <Plus size={16} />
-              Add
+              추가
             </button>
           </section>
         </aside>
@@ -566,7 +585,7 @@ function App() {
           <section className="panel-section">
             <div className="section-title">
               <Target size={17} />
-              <h2>Actions</h2>
+              <h2>선택지</h2>
             </div>
             <div className="action-list">
               {recommendations.length === 0 ? (
@@ -595,7 +614,7 @@ function App() {
           <section className="panel-section">
             <div className="section-title">
               <Shield size={17} />
-              <h2>Lines</h2>
+              <h2>라인 점수</h2>
             </div>
             <div className="line-summary">
               {outcome.lineOutcomes.map((line, index) => (
@@ -604,7 +623,7 @@ function App() {
                   <strong>
                     {line.playerScore} - {line.opponentScore}
                   </strong>
-                  <span className={line.winner}>{line.winner}</span>
+                  <span className={line.winner}>{WINNER_LABEL[line.winner]}</span>
                 </div>
               ))}
             </div>
@@ -613,12 +632,12 @@ function App() {
           <section className="panel-section">
             <div className="section-title">
               <Download size={17} />
-              <h2>Logs</h2>
+              <h2>기록</h2>
             </div>
             <div className="stats-row">
-              <span>Obs</span>
+              <span>관찰</span>
               <strong>{observations.length}</strong>
-              <span>Log</span>
+              <span>기록</span>
               <strong>{logs.length}</strong>
             </div>
             <div className="log-list">
@@ -653,7 +672,7 @@ function BoardSideView({
   onToggle
 }: BoardSideViewProps) {
   const side = state.board[owner];
-  const title = owner === "player" ? "PLAYER" : "OPPONENT";
+  const title = owner === "player" ? "내 필드" : "상대 필드";
 
   return (
     <section className={`side-board ${owner}`}>
@@ -730,11 +749,11 @@ interface DiePillProps {
 function DiePill({ die, onRemove, onToggle }: DiePillProps) {
   return (
     <div className={`die-pill ${die.kind}`}>
-      <button className="die-main" onClick={onToggle} title="Toggle die kind">
+      <button className="die-main" onClick={onToggle} title="일반/쉴드 변경">
         {die.kind === "shield" && <Shield size={13} />}
         <span>{die.value}</span>
       </button>
-      <button className="die-remove" onClick={onRemove} title="Remove die">
+      <button className="die-remove" onClick={onRemove} title="주사위 제거">
         <X size={12} />
       </button>
     </div>
@@ -776,13 +795,13 @@ function SegmentedOwner({
         className={value === "player" ? "selected" : ""}
         onClick={() => onChange("player")}
       >
-        Player
+        내 턴
       </button>
       <button
         className={value === "opponent" ? "selected" : ""}
         onClick={() => onChange("opponent")}
       >
-        Opponent
+        상대 턴
       </button>
     </div>
   );
@@ -824,7 +843,7 @@ function RecommendationRow({
       <span className="rec-main">
         <strong>{recommendation.label}</strong>
         <small>
-          W {pct}% · D {(recommendation.drawRate * 100).toFixed(1)}% · Δ{" "}
+          승 {pct}% · 무 {(recommendation.drawRate * 100).toFixed(1)}% · 점수차{" "}
           {recommendation.averageScoreDiff.toFixed(1)}
         </small>
       </span>

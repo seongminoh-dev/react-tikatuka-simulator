@@ -74,6 +74,7 @@ button {
 
 .topbar-actions {
   display: flex;
+  align-items: center;
   gap: 8px;
 }
 
@@ -314,7 +315,9 @@ button {
 }
 
 .winner-pill,
-.bonus-pill {
+.bonus-pill,
+.actor-pill,
+.save-pill {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -323,6 +326,19 @@ button {
   border-radius: 999px;
   font-size: 0.75rem;
   font-weight: 900;
+}
+
+.save-pill {
+  border: 1px solid #b9ded7;
+  background: var(--good-bg);
+  color: #087c70;
+  white-space: nowrap;
+}
+
+.actor-pill {
+  background: #eef1f6;
+  color: #394656;
+  white-space: nowrap;
 }
 
 .winner-pill.good {
@@ -601,6 +617,11 @@ select {
   .topbar {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .topbar-actions {
+    width: 100%;
+    flex-wrap: wrap;
   }
 
   .layout,
