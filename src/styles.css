@@ -624,6 +624,56 @@ select {
   color: #7a5d00;
 }
 
+.model-diagnostics {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.model-diagnostics .model-pill {
+  margin: 0;
+}
+
+.model-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.model-metrics span {
+  display: grid;
+  gap: 2px;
+  min-height: 44px;
+  padding: 7px 8px;
+  border: 1px solid #e8dfbf;
+  border-radius: 8px;
+  background: #fffaf0;
+  color: #8a6a05;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
+.model-metrics strong {
+  color: #17202a;
+  font-size: 0.88rem;
+}
+
+.model-mismatch-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.model-mismatch-tags span {
+  min-height: 24px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #eef1f6;
+  color: #52606f;
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
 .slot-button {
   display: grid;
   place-items: center;
@@ -974,7 +1024,8 @@ select {
 
   .manual-grid,
   .switch-row,
-  .two-column {
+  .two-column,
+  .model-metrics {
     grid-template-columns: 1fr;
   }
 

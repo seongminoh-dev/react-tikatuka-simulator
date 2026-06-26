@@ -127,6 +127,11 @@ export interface PolicyWeights {
   shieldSafety: number;
   lineWin: number;
   totalScore: number;
+  line1Bias: number;
+  line2Bias: number;
+  line3Bias: number;
+  bonusToEnemyBias: number;
+  bonusToSelfBias: number;
   randomJitter: number;
 }
 
@@ -138,12 +143,19 @@ export interface AiMismatchLog {
   predicted: string;
   actualScore: number;
   predictedScore: number;
+  actualRank: number;
+  scoreGap: number;
+  category: string;
+  suspicious: boolean;
   gameResult?: Winner;
 }
 
 export interface AiFitDiagnostics {
+  totalObservationCount: number;
   observationCount: number;
+  ignoredObservationCount: number;
   accuracy: number;
+  nearTopAccuracy: number;
   top3Accuracy: number;
   averageActualRank: number;
   mismatches: AiMismatchLog[];
@@ -159,8 +171,10 @@ export interface LearnedAiModel {
     createdAt: string;
     observationCount: number;
     accuracy: number;
+    nearTopAccuracy?: number;
     top3Accuracy: number;
     averageActualRank: number;
+    ignoredObservationCount?: number;
   }>;
 }
 

@@ -30,6 +30,11 @@ export const AI_PROFILES: Record<AiProfileName, PolicyWeights> = {
     shieldSafety: 24,
     lineWin: 120,
     totalScore: 2.4,
+    line1Bias: 0,
+    line2Bias: 0,
+    line3Bias: 0,
+    bonusToEnemyBias: 0,
+    bonusToSelfBias: 0,
     randomJitter: 2
   },
   aggressive: {
@@ -43,6 +48,11 @@ export const AI_PROFILES: Record<AiProfileName, PolicyWeights> = {
     shieldSafety: 12,
     lineWin: 90,
     totalScore: 2,
+    line1Bias: 0,
+    line2Bias: 0,
+    line3Bias: 0,
+    bonusToEnemyBias: 0,
+    bonusToSelfBias: 0,
     randomJitter: 3
   },
   score: {
@@ -56,6 +66,11 @@ export const AI_PROFILES: Record<AiProfileName, PolicyWeights> = {
     shieldSafety: 20,
     lineWin: 150,
     totalScore: 5,
+    line1Bias: 0,
+    line2Bias: 0,
+    line3Bias: 0,
+    bonusToEnemyBias: 0,
+    bonusToSelfBias: 0,
     randomJitter: 1
   },
   blocker: {
@@ -69,9 +84,24 @@ export const AI_PROFILES: Record<AiProfileName, PolicyWeights> = {
     shieldSafety: 18,
     lineWin: 115,
     totalScore: 1.8,
+    line1Bias: 0,
+    line2Bias: 0,
+    line3Bias: 0,
+    bonusToEnemyBias: 0,
+    bonusToSelfBias: 0,
     randomJitter: 2
   }
 };
+
+export function normalizePolicyWeights(
+  weights: Partial<PolicyWeights> | null | undefined,
+  fallback: PolicyWeights = AI_PROFILES.observed
+): PolicyWeights {
+  return {
+    ...fallback,
+    ...weights
+  };
+}
 
 export function utilityForPlayer(state: GameState): number {
   const outcome = evaluateBoard(state.board);
@@ -175,7 +205,10 @@ function scoreOpponentAction(
   aiProfile: AiProfileName,
   learnedWeights?: PolicyWeights | null
 ): number {
-  const weights = learnedWeights ?? AI_PROFILES[aiProfile];
+  const weights = normalizePolicyWeights(
+    learnedWeights ?? AI_PROFILES[aiProfile],
+    AI_PROFILES[aiProfile]
+  );
 
   if (action.type === "hold" || action.type === "reroll") {
     return Number.NEGATIVE_INFINITY;
@@ -209,7 +242,8 @@ function scoreOpponentAction(
       Math.max(0, ownAfter - ownBefore) * weights.ownScoreGain +
       Math.max(0, targetBefore - targetAfter) * weights.targetScoreLoss +
       (outcome.opponentLineWins - outcome.playerLineWins) * weights.lineWin +
-      (outcome.opponentTotal - outcome.playerTotal) * weights.totalScore
+      (outcome.opponentTotal - outcome.playerTotal) * weights.totalScore +
+      lineBias(weights, action.lineIndex)
     );
   }
 
@@ -238,6 +272,12 @@ function scoreOpponentAction(
     outcome.opponentTotal -
     outcome.playerTotal -
     (beforeOutcome.opponentTotal - beforeOutcome.playerTotal);
+  const bonusTargetBias =
+    action.source === "bonus"
+      ? targetIsEnemy
+        ? weights.bonusToEnemyBias
+        : weights.bonusToSelfBias
+      : 0;
 
   if (targetIsEnemy) {
     const slotPressure = targetLineBefore.length + 1;
@@ -251,7 +291,9 @@ function scoreOpponentAction(
       scoreGift * (lowBonus ? 6 : 11) -
       (highBonus ? action.value * 14 : 0) +
       lineSwing * weights.lineWin * 0.45 +
-      totalSwing * weights.totalScore
+      totalSwing * weights.totalScore +
+      lineBias(weights, action.lineIndex) +
+      bonusTargetBias
     );
   }
 
@@ -262,7 +304,9 @@ function scoreOpponentAction(
     (lowBonus ? weights.lowBonusToEnemy * 0.85 : 0) -
     (lowBonus && targetLineBefore.length === 0 ? 30 : 0) +
     lineSwing * weights.lineWin * 0.45 +
-    totalSwing * weights.totalScore
+    totalSwing * weights.totalScore +
+    lineBias(weights, action.lineIndex) +
+    bonusTargetBias
   );
 }
 
@@ -291,9 +335,13 @@ export function choosePolicyAction(
 
   let bestAction = actions[0];
   let bestScore = Number.NEGATIVE_INFINITY;
+  const weights =
+    actor === "opponent"
+      ? normalizePolicyWeights(learnedWeights ?? AI_PROFILES[aiProfile], AI_PROFILES[aiProfile])
+      : null;
   const jitter =
     actor === "opponent"
-      ? (learnedWeights ?? AI_PROFILES[aiProfile]).randomJitter
+      ? weights?.randomJitter ?? AI_PROFILES[aiProfile].randomJitter
       : 0.5;
 
   for (const action of actions) {
@@ -380,4 +428,16 @@ export function stateAfterActionOrClone(
   } catch {
     return cloneState(state);
   }
+}
+
+function lineBias(weights: PolicyWeights, lineIndex: LineIndex): number {
+  if (lineIndex === 0) {
+    return weights.line1Bias;
+  }
+
+  if (lineIndex === 1) {
+    return weights.line2Bias;
+  }
+
+  return weights.line3Bias;
 }

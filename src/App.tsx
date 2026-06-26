@@ -674,11 +674,7 @@ function SimulatorView({ navigate }: { navigate: (path: string) => void }) {
               </label>
             </div>
             {aiProfile === "observed" && (
-              <span className="model-pill">
-                모델 v{learnedAiModel.version} · 확정 관찰{" "}
-                {learnedAiModel.diagnostics.observationCount}개 · 적중{" "}
-                {(learnedAiModel.diagnostics.accuracy * 100).toFixed(0)}%
-              </span>
+              <ModelDiagnosticsCard model={learnedAiModel} />
             )}
             <button
               className="primary-button"
@@ -1737,6 +1733,69 @@ function RecommendationRow({
       </span>
     </button>
   );
+}
+
+function ModelDiagnosticsCard({ model }: { model: LearnedAiModel }) {
+  const diagnostics = model.diagnostics;
+  const observationCount = diagnostics.observationCount ?? 0;
+  const totalObservationCount =
+    diagnostics.totalObservationCount ?? observationCount;
+  const ignoredObservationCount = diagnostics.ignoredObservationCount ?? 0;
+  const nearTopAccuracy =
+    diagnostics.nearTopAccuracy ?? diagnostics.top3Accuracy ?? diagnostics.accuracy;
+  const averageRank = diagnostics.averageActualRank || 0;
+  const mismatchCategories = summarizeMismatchCategories(
+    diagnostics.mismatches ?? []
+  );
+
+  return (
+    <div className="model-diagnostics">
+      <span className="model-pill">
+        모델 v{model.version} · 사용 관찰 {observationCount}/{totalObservationCount}개
+        {ignoredObservationCount > 0 && ` · 의심 제외 ${ignoredObservationCount}개`}
+      </span>
+      <div className="model-metrics">
+        <span>
+          Top1 <strong>{formatPercent(diagnostics.accuracy)}</strong>
+        </span>
+        <span>
+          근접 <strong>{formatPercent(nearTopAccuracy)}</strong>
+        </span>
+        <span>
+          Top3 <strong>{formatPercent(diagnostics.top3Accuracy)}</strong>
+        </span>
+        <span>
+          평균 <strong>{averageRank.toFixed(2)}등</strong>
+        </span>
+      </div>
+      {mismatchCategories.length > 0 && (
+        <div className="model-mismatch-tags">
+          {mismatchCategories.slice(0, 3).map(([category, count]) => (
+            <span key={category}>
+              {category} {count}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function summarizeMismatchCategories(
+  mismatches: LearnedAiModel["diagnostics"]["mismatches"]
+): Array<[string, number]> {
+  const counts = new Map<string, number>();
+
+  for (const mismatch of mismatches) {
+    const category = mismatch.category ?? "기타";
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+
+  return [...counts.entries()].sort((a, b) => b[1] - a[1]);
+}
+
+function formatPercent(value: number | undefined): string {
+  return `${((value ?? 0) * 100).toFixed(0)}%`;
 }
 
 function inferObservedProfile(observations: ObservationEntry[]): AiProfileName {
